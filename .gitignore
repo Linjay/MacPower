@@ -1,0 +1,7 @@
+.build/
+.swiftpm/
+build/
+.DS_Store
+__pycache__/
+prototype/node_modules/
+prototype/dist/
