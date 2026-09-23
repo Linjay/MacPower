@@ -91,7 +91,7 @@ struct SettingsPanel: View {
         VStack(alignment:.leading,spacing:18) {
             Image(systemName:"bolt.fill").font(.system(size:30)).foregroundStyle(Palette.blue)
             Text("MacPower").font(.system(size:27,weight:.bold))
-            Text("0.1.0 · 本地开发版").font(.system(size:12)).foregroundStyle(Palette.secondary)
+            Text("\(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "开发版") · 预览版").font(.system(size:12)).foregroundStyle(Palette.secondary)
             Text("看清进入 Mac、流入电池和设备运行的功率。").font(.system(size:14)).lineSpacing(5)
             Text("SwiftUI / AppKit 原生应用。采集为只读，无管理员辅助程序。当前优先验证 Apple Silicon MacBook；部分硬件字段不可用时保留为空。").font(.system(size:12)).foregroundStyle(Palette.secondary).lineSpacing(5)
             Divider()

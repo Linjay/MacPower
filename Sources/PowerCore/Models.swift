@@ -119,7 +119,7 @@ public enum MenuMetric: String, CaseIterable, Codable, Sendable {
 
 public struct Preferences: Codable, Equatable, Sendable {
     public var appearance: AppearanceMode = .system
-    public var menuMetric: MenuMetric = .battery
+    public var menuMetric: MenuMetric = .system
     public var showPercent = false
     public var recordHistory = true
     public var retentionDays = 7

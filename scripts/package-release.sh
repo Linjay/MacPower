@@ -15,7 +15,9 @@ case "$ARCH" in
     *) print -u2 "Unexpected binary architectures: $ARCH"; exit 1 ;;
 esac
 ARCHIVE="MacPower-$VERSION-$ARCH.zip"
-/usr/bin/ditto -c -k --sequesterRsrc --keepParent "$APP" "$RELEASE_DIR/$ARCHIVE"
+# App resources are ordinary bundle files. Do not distribute this Mac's extended
+# attributes or AppleDouble metadata alongside the signed app contents.
+/usr/bin/ditto -c -k --norsrc --noextattr --keepParent "$APP" "$RELEASE_DIR/$ARCHIVE"
 (
     cd "$RELEASE_DIR"
     /usr/bin/shasum -a 256 "$ARCHIVE" > SHA256SUMS
