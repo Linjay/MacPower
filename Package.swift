@@ -11,9 +11,11 @@ let package = Package(
     targets: [
         .target(name: "PowerCore"),
         .target(name: "PowerHardware", dependencies: ["PowerCore"]),
-        .executableTarget(name: "MacPower", dependencies: ["PowerCore", "PowerHardware"]),
+        .target(name: "UpdateCore"),
+        .executableTarget(name: "MacPower", dependencies: ["PowerCore", "PowerHardware", "UpdateCore"]),
         .executableTarget(name: "MacPowerProbe", dependencies: ["PowerCore", "PowerHardware"]),
-        .testTarget(name: "PowerCoreTests", dependencies: ["PowerCore"])
+        .testTarget(name: "PowerCoreTests", dependencies: ["PowerCore"]),
+        .testTarget(name: "UpdateCoreTests", dependencies: ["UpdateCore"])
     ],
     swiftLanguageModes: [.v5]
 )

@@ -2,34 +2,34 @@ import SwiftUI
 import PowerCore
 
 enum SettingsPage: String, CaseIterable, Identifiable {
-    case appearance = "外观与显示", data = "数据记录", reminders = "提醒", about = "关于"
+    case appearance = "外观与显示", data = "数据记录", reminders = "提醒", updates = "软件更新", about = "关于"
     var id: String { rawValue }
-    var icon: String { self == .appearance ? "sun.max" : self == .data ? "externaldrive" : self == .reminders ? "bell" : "info.circle" }
+    var icon: String { self == .appearance ? "sun.max" : self == .data ? "externaldrive" : self == .reminders ? "bell" : self == .updates ? "arrow.down.circle" : "info.circle" }
 }
 
 struct SettingsPanel: View {
     @ObservedObject var store: AppStore
-    @ViewState<SettingsPage> private var page: SettingsPage = .appearance
     var body: some View {
         HStack(spacing:0) {
             VStack(spacing:6) {
                 ForEach(SettingsPage.allCases) { item in
-                    Button { page = item } label: {
+                    Button { store.settingsPage = item } label: {
                         HStack(spacing:9) { Image(systemName:item.icon).frame(width:18);Text(item.rawValue);Spacer(minLength:0) }
                             .font(.system(size:12)).padding(11).contentShape(Rectangle())
-                            .foregroundStyle(page == item ? Palette.blue : Palette.secondary)
-                            .background(page == item ? Palette.blue.opacity(0.13) : .clear,in:RoundedRectangle(cornerRadius:6))
-                    }.buttonStyle(.plain).accessibilityAddTraits(page == item ? .isSelected : [])
+                            .foregroundStyle(store.settingsPage == item ? Palette.blue : Palette.secondary)
+                            .background(store.settingsPage == item ? Palette.blue.opacity(0.13) : .clear,in:RoundedRectangle(cornerRadius:6))
+                    }.buttonStyle(.plain).accessibilityAddTraits(store.settingsPage == item ? .isSelected : [])
                 }
                 Spacer()
             }.padding(.horizontal,10).padding(.top,20).frame(width:156).background(Palette.secondarySurface)
             Divider().overlay(Palette.line)
             ScrollView {
                 VStack(alignment:.leading,spacing:0) {
-                    switch page {
+                    switch store.settingsPage {
                     case .appearance: appearance
                     case .data: data
                     case .reminders: reminders
+                    case .updates: SoftwareUpdatePanel(updater: store.updater)
                     case .about: about
                     }
                     if let message = store.message { Text(message).font(.system(size:11)).foregroundStyle(Palette.warning).padding(.top,20).textSelection(.enabled) }
@@ -92,6 +92,7 @@ struct SettingsPanel: View {
             Image(systemName:"bolt.fill").font(.system(size:30)).foregroundStyle(Palette.blue)
             Text("MacPower").font(.system(size:27,weight:.bold))
             Text("\(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "开发版") · 预览版").font(.system(size:12)).foregroundStyle(Palette.secondary)
+            Button("检查更新…") { store.settingsPage = .updates; store.updater.check() }
             Text("看清进入 Mac、流入电池和设备运行的功率。").font(.system(size:14)).lineSpacing(5)
             Text("SwiftUI / AppKit 原生应用。采集为只读，无管理员辅助程序。当前优先验证 Apple Silicon MacBook；部分硬件字段不可用时保留为空。").font(.system(size:12)).foregroundStyle(Palette.secondary).lineSpacing(5)
             Divider()

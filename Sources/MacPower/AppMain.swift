@@ -22,11 +22,13 @@ import PowerCore
     private var detailWindow: NSWindow?
     private var overviewWindow: NSWindow?
     private var appearanceObserver: NSKeyValueObservation?
+    private var updateTimer: Timer?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         let menu = NSMenu(), appItem = NSMenuItem(), appMenu = NSMenu(title:"MacPower")
         appMenu.addItem(withTitle:"设置…",action:#selector(settingsAction),keyEquivalent:",").target = self
+        appMenu.addItem(withTitle:"检查更新…",action:#selector(checkForUpdatesAction),keyEquivalent:"").target = self
         appMenu.addItem(.separator())
         appMenu.addItem(withTitle:"退出 MacPower",action:#selector(quitAction),keyEquivalent:"q").target = self
         appItem.submenu = appMenu; menu.addItem(appItem); NSApp.mainMenu = menu
@@ -59,6 +61,11 @@ import PowerCore
             Task { @MainActor in self?.updateStatus() }
         }
         updateAppearance(); updateStatus(); store.start()
+        store.updater.checkIfDue()
+        updateTimer = Timer.scheduledTimer(withTimeInterval:3600,repeats:true) { [weak self] _ in
+            Task { @MainActor in self?.store.updater.checkIfDue() }
+        }
+        updateTimer?.tolerance = 300
         // Opening the app gives an immediately discoverable panel; closing it leaves only the status item.
         DispatchQueue.main.asyncAfter(deadline:.now()+0.3) { [weak self] in
             guard let self,
@@ -66,7 +73,7 @@ import PowerCore
             self.showPopover()
         }
     }
-    func applicationWillTerminate(_ notification: Notification) { store.stop() }
+    func applicationWillTerminate(_ notification: Notification) { updateTimer?.invalidate(); store.updater.cancel(); store.stop() }
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         // Finder's Open operation offers a stable window even when menu extras are hidden or crowded.
         openOverview()
@@ -107,6 +114,10 @@ import PowerCore
             menu.addItem(withTitle:"打开 MacPower",action:#selector(showPopoverAction),keyEquivalent:"").target = self
             menu.addItem(withTitle:"在窗口中打开",action:#selector(overviewAction),keyEquivalent:"").target = self
             menu.addItem(withTitle:"设置…",action:#selector(settingsAction),keyEquivalent:",").target = self
+            let updateTitle: String
+            if case .available(let release) = store.updater.state { updateTitle = "发现新版本 \(release.version.number)…" }
+            else { updateTitle = "检查更新…" }
+            menu.addItem(withTitle:updateTitle,action:#selector(checkForUpdatesAction),keyEquivalent:"").target = self
             menu.addItem(.separator())
             menu.addItem(withTitle:"退出 MacPower",action:#selector(quitAction),keyEquivalent:"q").target = self
             statusItem.menu = menu; statusItem.button?.performClick(nil); statusItem.menu = nil
@@ -114,6 +125,13 @@ import PowerCore
     }
     @objc private func showPopoverAction() { showPopover() }
     @objc private func settingsAction() { openSettings() }
+    @objc private func checkForUpdatesAction() {
+        store.settingsPage = .updates
+        openSettings()
+        // Keep an already discovered release visible when opening the update entry.
+        if case .available = store.updater.state { return }
+        store.updater.check()
+    }
     @objc private func overviewAction() { openOverview() }
     @objc private func quitAction() { NSApp.terminate(nil) }
     private func showPopover() {

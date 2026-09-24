@@ -6,8 +6,11 @@ import UserNotifications
 import UniformTypeIdentifiers
 import PowerCore
 import PowerHardware
+import UpdateCore
 
 @MainActor final class AppStore: ObservableObject {
+    let updater = UpdateStore()
+    @Published var settingsPage: SettingsPage = .appearance
     @Published var snapshot = PowerSnapshot.unavailable()
     @Published var health: HealthReport?
     @Published var state: PowerState = .updating
