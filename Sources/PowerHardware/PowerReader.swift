@@ -4,6 +4,23 @@ import IOKit.ps
 import PowerCore
 
 public enum PowerReader {
+    /// Read configured modes for both power sources without changing system settings.
+    public static func readEnergyModes() -> EnergyModeProfiles {
+        let date = Date(), process = Process(), pipe = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/pmset")
+        process.arguments = ["-g", "custom"]
+        process.environment = ["LC_ALL": "C", "LANG": "C"]
+        process.standardOutput = pipe; process.standardError = FileHandle.nullDevice
+        do { try process.run() } catch { return EnergyModeProfiles(at: date) }
+        let watchdog = DispatchWorkItem { if process.isRunning { process.terminate() } }
+        DispatchQueue.global().asyncAfter(deadline: .now() + 2, execute: watchdog)
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit(); watchdog.cancel()
+        guard process.terminationStatus == 0, data.count <= 65_536,
+              let output = String(data: data, encoding: .utf8) else { return EnergyModeProfiles(at: date) }
+        return EnergyModeProfiles.parse(output, at: date)
+    }
+
     public static func read() -> PowerSnapshot {
         let date = Date()
         let service = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("AppleSmartBattery"))

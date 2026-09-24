@@ -11,6 +11,7 @@ import PowerHardware
     @Published var snapshot = PowerSnapshot.unavailable()
     @Published var health: HealthReport?
     @Published var state: PowerState = .updating
+    @Published private(set) var energyModes = EnergyModeProfiles(at: .distantPast)
     @Published var message: String?
     @Published var healthMessage: String?
     @Published var revision = 0
@@ -46,12 +47,21 @@ import PowerHardware
     private var lastSave = Date.distantPast
     private var lastHealth = Date.distantPast
     private var healthLoading = false
+    private var energyModesLoading = false
+    private var powerModeObserver: NSObjectProtocol?
     private var stabilizer = SourceStabilizer()
     private var reminders = ReminderPolicy()
     var points: [HistoryPoint] { recorder.archive.points }
     var healthHistory: [HealthReport] { recorder.archive.health }
     var interval: TimeInterval { panelVisible ? 1 : preferences.energySaving ? 15 : 5 }
     var isStale: Bool { state == .stale || state == .updating || state == .sleeping || state == .unavailable }
+    var energyMode: EnergyMode {
+        guard !isStale, Date().timeIntervalSince(energyModes.sampledAt) < 45 else { return .unknown }
+        return energyModes.mode(externalConnected: snapshot.externalConnected)
+    }
+    var energyModeSource: String {
+        snapshot.externalConnected == true ? "macOS 外接电源设置" : "macOS 电池供电设置"
+    }
 
     init() {
         preferences = Preferences.decode(UserDefaults.standard.data(forKey:"preferences.v1"))
@@ -67,7 +77,12 @@ import PowerHardware
     }
 
     func start() {
-        observer = PowerEventObserver { [weak self] in Task { @MainActor in self?.sample() } }
+        observer = PowerEventObserver { [weak self] in Task { @MainActor in
+            self?.refreshEnergyModes(force: true); self?.sample()
+        } }
+        powerModeObserver = NotificationCenter.default.addObserver(forName: .NSProcessInfoPowerStateDidChange, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in self?.refreshEnergyModes(force: true) }
+        }
         let center = NSWorkspace.shared.notificationCenter
         observers.append(center.addObserver(forName:NSWorkspace.willSleepNotification,object:nil,queue:.main) { [weak self] _ in
             Task { @MainActor in self?.sleep() }
@@ -77,7 +92,10 @@ import PowerHardware
         })
         restartTimer(); sample(); refreshHealth()
     }
-    func setVisible(_ visible: Bool) { panelVisible = visible; restartTimer(); if visible { sample() } }
+    func setVisible(_ visible: Bool) {
+        panelVisible = visible; restartTimer()
+        if visible { refreshEnergyModes(force: true); sample() }
+    }
     private func restartTimer() {
         timer?.invalidate(); guard !sleeping else { return }
         timer = Timer.scheduledTimer(withTimeInterval:interval,repeats:true) { [weak self] _ in
@@ -87,6 +105,7 @@ import PowerHardware
     }
     func sample() {
         guard !sleeping, !sampling else { return }
+        refreshEnergyModes()
         sampling = true; let token = generation
         if Date().timeIntervalSince(snapshot.timestamp) > max(5, interval*3) { state = .stale; onUpdate?() }
         Task {
@@ -102,6 +121,18 @@ import PowerHardware
             else { reminders.resetContinuity() }
             if Date().timeIntervalSince(lastHealth) > 3600 { refreshHealth() }
             onUpdate?()
+        }
+    }
+    private func refreshEnergyModes(force: Bool = false) {
+        guard !sleeping, !energyModesLoading,
+              force || Date().timeIntervalSince(energyModes.sampledAt) >= 15 else { return }
+        energyModesLoading = true
+        let token = generation
+        Task {
+            let result = await Task.detached(priority: .utility) { PowerReader.readEnergyModes() }.value
+            energyModesLoading = false
+            guard token == generation, !sleeping else { return }
+            energyModes = result; onUpdate?()
         }
     }
     func refreshHealth() {
@@ -121,9 +152,14 @@ import PowerHardware
     }
     private func wake() {
         sleeping = false; generation += 1; stabilizer.reset(); recorder.breakContinuity()
+        energyModes = EnergyModeProfiles(at: .distantPast)
         state = .updating; restartTimer(); sample(); refreshHealth()
     }
-    func stop() { generation += 1; sleeping = true; timer?.invalidate(); observer = nil; persist(); ioQueue.sync {} }
+    func stop() {
+        generation += 1; sleeping = true; timer?.invalidate(); observer = nil
+        if let powerModeObserver { NotificationCenter.default.removeObserver(powerModeObserver) }
+        persist(); ioQueue.sync {}
+    }
 
     func persist() {
         guard writeEnabled else { return }

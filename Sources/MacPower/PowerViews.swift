@@ -21,6 +21,25 @@ enum Palette {
 
 enum PanelPage: String, CaseIterable { case live = "实时", trends = "趋势", health = "健康" }
 
+extension EnergyMode {
+    var menuColor: NSColor {
+        switch self {
+        case .automatic: return .systemBlue
+        case .lowPower: return .systemGreen
+        case .highPower: return .systemOrange
+        case .unknown: return .labelColor
+        }
+    }
+    var panelColor: Color {
+        switch self {
+        case .automatic: return Palette.blue
+        case .lowPower: return Palette.teal
+        case .highPower: return Palette.warning
+        case .unknown: return Palette.secondary
+        }
+    }
+}
+
 struct PowerPanel: View {
     @ObservedObject var store: AppStore
     @ViewState<PanelPage> private var page: PanelPage = .live
@@ -80,6 +99,19 @@ struct LivePanel: View {
                 ContentUnavailableView("未检测到内置电池",systemImage:"battery.0percent",description:Text("当前版本面向 MacBook。若设备有电池，可重新读取。"))
                 Button("重新读取") { store.sample() }.padding(.bottom,20)
             } else {
+                if store.state.showsEnergyMode {
+                    HStack(spacing:7) {
+                        Image(systemName:store.energyMode.symbol)
+                        Text("能源模式 · \(store.energyMode.title)").fontWeight(.medium)
+                        Spacer()
+                        Text("系统设置").font(.system(size:10)).foregroundStyle(Palette.secondary)
+                    }.font(.system(size:12)).foregroundStyle(store.energyMode.panelColor)
+                        .padding(.horizontal,10).padding(.vertical,8)
+                        .background(store.energyMode.panelColor.opacity(0.08),in:RoundedRectangle(cornerRadius:7))
+                        .padding(.bottom,14)
+                        .help("\(store.energyModeSource) · 只读\n系统选择的能源策略，不代表即时性能。菜单栏：自动为蓝色、节能为绿色、高性能为橙色；未提供时保持默认颜色。")
+                        .accessibilityElement(children:.combine)
+                }
                 PowerFlowView(store:store)
                 Text(store.isStale ? "最新读数暂不可用" : "\(store.snapshot.input.quality.label) · 点击功率查看来源")
                     .font(.system(size:11)).foregroundStyle(Palette.secondary).padding(.top,4).padding(.bottom,16)

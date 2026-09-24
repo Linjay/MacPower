@@ -39,11 +39,11 @@ import PowerCore
         windowMenu.addItem(withTitle:"关闭窗口",action:#selector(NSWindow.performClose(_:)),keyEquivalent:"w")
         windowMenu.addItem(withTitle:"最小化",action:#selector(NSWindow.performMiniaturize(_:)),keyEquivalent:"m")
         windowItem.submenu = windowMenu; menu.addItem(windowItem); NSApp.windowsMenu = windowMenu
-        statusItem = NSStatusBar.system.statusItem(withLength:112)
+        statusItem = NSStatusBar.system.statusItem(withLength:NSStatusItem.variableLength)
         if let button = statusItem.button {
             button.target = self; button.action = #selector(togglePopover)
             button.sendAction(on:[.leftMouseUp,.rightMouseUp])
-            button.font = .monospacedDigitSystemFont(ofSize:12,weight:.medium)
+            button.font = .monospacedDigitSystemFont(ofSize:11,weight:.medium)
             button.imagePosition = .imageLeading
         }
         popover.behavior = .transient; popover.animates = !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
@@ -87,11 +87,17 @@ import PowerCore
     private func updateStatus() {
         guard let button = statusItem?.button else { return }
         let icon = NSImage(systemSymbolName:store.batterySymbol,accessibilityDescription:nil); icon?.isTemplate = true
+        icon?.size = NSSize(width:18,height:10)
         button.image = icon
-        let extra = store.preferences.showPercent && store.preferences.menuMetric != .percent ? store.snapshot.percent.map { "  \($0)%" } ?? "" : ""
-        button.title = " \(store.menuText)\(extra)"
-        statusItem.length = extra.isEmpty ? (store.preferences.menuMetric == .percent ? 80 : 112) : 152
-        let description = "\(store.preferences.menuMetric.title) \(store.menuText)，\(store.state.title)"
+        let extra = store.preferences.showPercent && store.preferences.menuMetric != .percent ? store.snapshot.percent.map { " \($0)%" } ?? "" : ""
+        let compactText = store.menuText.replacingOccurrences(of:" W",with:"W") + extra
+        let color = store.state.showsEnergyMode ? store.energyMode.menuColor : NSColor.labelColor
+        button.attributedTitle = NSAttributedString(string:compactText,attributes:[
+            .font: NSFont.monospacedDigitSystemFont(ofSize:11,weight:.medium), .foregroundColor: color
+        ])
+        statusItem.length = NSStatusItem.variableLength
+        let mode = store.state.showsEnergyMode ? "，能源模式：\(store.energyMode.title)（\(store.energyModeSource)）" : ""
+        let description = "\(store.preferences.menuMetric.title) \(store.menuText)，\(store.state.title)\(mode)"
         button.toolTip = "MacPower · \(description)\n更新于 \(store.snapshot.timestamp.formatted(date:.omitted,time:.standard))"
         button.setAccessibilityLabel("MacPower，\(description)")
     }
