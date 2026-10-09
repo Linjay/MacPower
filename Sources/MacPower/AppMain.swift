@@ -47,6 +47,10 @@ import PowerCore
             button.sendAction(on:[.leftMouseUp,.rightMouseUp])
             button.font = .monospacedDigitSystemFont(ofSize:11,weight:.medium)
             button.imagePosition = .imageLeading
+            // The menu bar follows its own appearance, including when the app uses a manual theme.
+            appearanceObserver = button.observe(\.effectiveAppearance,options:[.new]) { [weak self] _,_ in
+                Task { @MainActor in self?.updateStatus() }
+            }
         }
         popover.behavior = .transient; popover.animates = !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         popover.delegate = self
@@ -57,9 +61,6 @@ import PowerCore
         store.showHistory = { [weak self] minutes, series in self?.openHistory(minutes:minutes,series:series) }
         store.showMetric = { [weak self] key in self?.openMetric(key) }
         store.quit = { NSApp.terminate(nil) }
-        appearanceObserver = NSApp.observe(\.effectiveAppearance,options:[.new]) { [weak self] _,_ in
-            Task { @MainActor in self?.updateStatus() }
-        }
         updateAppearance(); updateStatus(); store.start()
         store.updater.checkIfDue()
         updateTimer = Timer.scheduledTimer(withTimeInterval:3600,repeats:true) { [weak self] _ in
@@ -86,24 +87,24 @@ import PowerCore
         case .light: appearance = NSAppearance(named:.aqua)
         case .dark: appearance = NSAppearance(named:.darkAqua)
         }
-        // A manual app appearance does not change the system menu bar; its icon remains a template.
+        // A manual app appearance does not change the system menu bar or its mode colors.
         if NSApp.appearance?.name != appearance?.name { NSApp.appearance = appearance }
         popover.appearance = appearance
         for window in [settingsWindow,historyWindow,detailWindow,overviewWindow].compactMap({$0}) { window.appearance = appearance }
     }
     private func updateStatus() {
         guard let button = statusItem?.button else { return }
-        let icon = NSImage(systemSymbolName:store.batterySymbol,accessibilityDescription:nil); icon?.isTemplate = true
-        icon?.size = NSSize(width:18,height:10)
-        button.image = icon
+        let energyMode = store.energyMode
+        let appearance = button.effectiveAppearance
+        button.image = MenuBarStyle.image(symbol:store.batterySymbol,mode:energyMode,appearance:appearance)
         let extra = store.preferences.showPercent && store.preferences.menuMetric != .percent ? store.snapshot.percent.map { " \($0)%" } ?? "" : ""
         let compactText = store.menuText.replacingOccurrences(of:" W",with:"W") + extra
-        let color = store.state.showsEnergyMode ? store.energyMode.menuColor : NSColor.labelColor
+        let color = MenuBarStyle.color(for:energyMode,appearance:appearance)
         button.attributedTitle = NSAttributedString(string:compactText,attributes:[
             .font: NSFont.monospacedDigitSystemFont(ofSize:11,weight:.medium), .foregroundColor: color
         ])
         statusItem.length = NSStatusItem.variableLength
-        let mode = store.state.showsEnergyMode ? "，能源模式：\(store.energyMode.title)（\(store.energyModeSource)）" : ""
+        let mode = store.isStale ? "" : "，能源模式：\(energyMode.title)（\(store.energyModeSource)）"
         let description = "\(store.preferences.menuMetric.title) \(store.menuText)，\(store.state.title)\(mode)"
         button.toolTip = "MacPower · \(description)\n更新于 \(store.snapshot.timestamp.formatted(date:.omitted,time:.standard))"
         button.setAccessibilityLabel("MacPower，\(description)")

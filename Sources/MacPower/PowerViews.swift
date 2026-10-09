@@ -22,14 +22,6 @@ enum Palette {
 enum PanelPage: String, CaseIterable { case live = "实时", trends = "趋势", health = "健康" }
 
 extension EnergyMode {
-    var menuColor: NSColor {
-        switch self {
-        case .automatic: return .systemBlue
-        case .lowPower: return .systemGreen
-        case .highPower: return .systemOrange
-        case .unknown: return .labelColor
-        }
-    }
     var panelColor: Color {
         switch self {
         case .automatic: return Palette.blue

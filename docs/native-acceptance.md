@@ -149,3 +149,30 @@
 - **安装包验证**：`build/releases/MacPower-0.1.2-arm64.zip` 共 9 个 ZIP 条目，CRC 检查通过；其中所有文件与构建包逐字节一致。确认 Info.plist 为 0.1.2 / 3，未包含 AppleDouble、扩展属性、个人历史或诊断数据。ZIP SHA-256 为 `1c47427215e14b9644221cf90c21d4ced3e7601cd8fb144a777f6c3cd9e3024d`。
 - **实机证据边界**：上一节原生 UI 验证使用功能相同、包版本仍为 0.1.1 的本地构建；本节验证版本元数据与分发包，未将其计作 0.1.2 下载后安装启动验收。未覆盖其他设备、长期运行、真实下载替换或新权限流程。
 - 发行说明位于 `docs/releases/v0.1.2.md`；随包 `verification.json` 记录实际源码提交及验证摘要，`SHA256SUMS` 用于核对 ZIP。
+
+## v0.1.2 源码更新与重新安装（2026-09-24 17:00，Asia/Hong_Kong）
+
+- 从 `b0bcb81` 快进拉取至 `origin/main` 的 `4aca0ba`（v0.1.2）。本机为 macOS 27.0 (26A428)、arm64、Command Line Tools Swift 6.4。
+- 自动验证：重新执行 `zsh scripts/test.sh`，17 项更新测试及 29 项核心/能源模式测试全部通过，共 46 项；此项为夹具与模拟响应覆盖。日志为 `build/evidence/reinstall-v0.1.2-tests.log`。
+- 构建安装：`zsh scripts/build-app.sh` 输出至 `build/reinstall-v0.1.2/MacPower.app`，替换 `/Applications/MacPower.app`；版本 0.1.2、构建号 3。安装后的严格签名完整性检查通过，可执行文件与本次构建逐字节一致。构建日志为 `build/evidence/reinstall-v0.1.2-build.log`。
+- 实机与 UI：正常退出旧进程后从安装路径启动，确认进程位于 `/Applications/MacPower.app/Contents/MacOS/MacPower`。实时概览正常显示并更新时间；实际打开设置中的“软件更新”，页面显示“当前版本 0.1.2”，自动检查关闭、包含预览版开启。没有点击在线检查或下载，不将本次计作真实网络升级链路验收。
+- 已保留原有历史及偏好；界面确认跟随系统、电池净功率、同时显示电量关闭，以及用户已有的登录启动开启设置。未修改通知权限、登录注册或系统安全设置。旧包保存于 `build/backups/MacPower-before-v0.1.2-20260924-165944.app`。
+- 已安装可执行文件 SHA-256：`d67aa792bc53ca03033d2f4cd848d52c8887cd1989aaebc381d4155c85ebc86a`。当前仅完成本机安装与短时启动验证，不扩展为长期性能、其他设备或 Apple 公证验收。
+
+## 菜单栏能源模式图标颜色（2026-10-09 10:22，Asia/Hong_Kong）
+
+- 按本次用户要求，电池图标与数字统一使用节能绿色、自动蓝色、高性能橙色。电池供电和外接电源均按当前来源的模式显示，包括充电、满电和闲置；模式未知、供电状态不可用或配置采样过期时恢复系统单色模板图标及默认文字色。保留紧凑尺寸、电量/充电图形、悬停模式来源和无障碍文字。
+- **自动测试与构建**：执行 `zsh scripts/test.sh`，17 项更新测试及 29 项核心/能源模式测试通过，共 46 项；执行 `zsh scripts/build-app.sh` 成功。对应日志为 `build/evidence/menu-mode-colors-tests.log` 与 `menu-mode-colors-build.log`。
+- **原生渲染夹具**：直接编译本次 `MenuBarStyle.swift` 并使用 AppKit 绘制，检查四种模式、浅色/深色、六种电池/充电图形、1×/2× 共 96 组。确认已知模式的实际像素带对应颜色，未知模式保留模板标记，图标仍为 18 × 10 pt。此项为离屏绘制夹具，不代表真实菜单栏截图或系统模式切换；日志为 `build/evidence/menu-mode-colors-rendering.log`。
+- **本机安装与界面**：macOS 27.0.1 (26A434)、arm64。正常退出旧版后替换 `/Applications/MacPower.app`，严格签名完整性及构建/安装二进制一致性检查通过；确认运行进程来自安装路径。经 Finder 重新打开应用后，原生概览显示“电池供电 / 能源模式 · 节能”，实时数据继续刷新。沿用现有偏好与本地历史；应用仍沿用版本 0.1.2 / 构建号 3，本次未发布新版本。
+- **验收边界**：UI 工具只能取得概览窗口，未取得独立菜单栏截图，也未实测自动/高性能的系统设置切换或外接电源状态矩阵。初次后台启动后 UI 工具报告无可用窗口；通过 Finder 重开后概览可用，不将工具可见性问题判定为应用崩溃。模式配色的浅色/深色覆盖来自原生渲染夹具，不能替代实际菜单栏主题切换、其他设备、长期运行或公证验收。
+- 前版备份为 `build/backups/MacPower-before-mode-colors-20261009-102006.app`；本次安装二进制 SHA-256 为 `0eec6bd2ef6672a767e0f57377601a8712517e41cc8e98e8710e11e635d648c6`。
+
+## v0.1.3 发布构建（2026-10-09 10:30，Asia/Hong_Kong）
+
+- 版本更新为 0.1.3、构建号 4，包含本次菜单栏能源模式图标颜色改动；保持预览版分发。
+- **自动验证**：重新执行 `zsh scripts/test.sh`，17 项更新测试和 29 项核心/能源模式测试通过，共 46 项；本次颜色实现的 96 组原生离屏渲染结果见上一节。发布日志为 `build/evidence/release-v0.1.3-tests.log`。
+- **构建与安装包**：`zsh scripts/package-release.sh` 调用 `zsh scripts/build-app.sh` 成功，严格签名完整性通过。ZIP 共 9 个条目，CRC、4 个包内文件与构建输出逐字节一致、可执行权限、版本 0.1.3 / 4 及 arm64 架构均检查通过；未包含 AppleDouble、个人历史或原始设备诊断，二进制未检出个人构建路径。日志为 `build/evidence/release-v0.1.3-build.log` 与 `release-v0.1.3-artifact-checks.json`。
+- ZIP SHA-256 为 `0b32e03da03fd91b31279e8eef28b1e8e3366fd418a83ba27b6a63ee25a4b498`；发布二进制 SHA-256 为 `6236e9d52780e72a471b0f8eeb1c483c57e73f77cb1e04acb26f67c539c62750`。附件 `verification.json` 记录最终源码提交与实际验证范围。
+- **实机边界**：上一节安装和概览验证仍使用版本 0.1.2 / 3 的相同功能代码；本节只验证新版本元数据与安装包，不将其计为 0.1.3 下载后启动验收。未扩展系统模式切换、真实菜单栏截图、其他硬件、长期性能、Developer ID 签名或 Apple 公证验收。
+- 发行说明位于 `docs/releases/v0.1.3.md`；本轮发布构建未替换正在运行的本机应用。

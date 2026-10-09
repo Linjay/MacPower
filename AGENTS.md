@@ -1,7 +1,7 @@
 # MacPower
 
 - Native application: Swift Package in `Sources/`, minimum macOS 14. `prototype/` is the approved browser design reference, not the shipping app.
-- Follow selected Power Path layout and `docs/appearance.md`: system/light/dark, default system, saved preference. Native status icon remains a monochrome template.
+- Follow selected Power Path layout and `docs/appearance.md`: system/light/dark, default system, saved preference. Native status icon and numbers use current energy-mode colors; unknown or stale mode falls back to the system monochrome template.
 - Distinguish adapter capability, actual DC input, signed battery power, and system load. Missing is never zero; estimates and data sources must remain visible.
 - Read-only monitoring. No charging control, root helper, automatic login registration, or automatic notification permission requests.
 - Keep collected hardware identifiers out of logs, exports and fixtures. Store local history in Application Support/MacPower only.
