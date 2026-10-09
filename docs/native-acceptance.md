@@ -176,3 +176,21 @@
 - ZIP SHA-256 为 `0b32e03da03fd91b31279e8eef28b1e8e3366fd418a83ba27b6a63ee25a4b498`；发布二进制 SHA-256 为 `6236e9d52780e72a471b0f8eeb1c483c57e73f77cb1e04acb26f67c539c62750`。附件 `verification.json` 记录最终源码提交与实际验证范围。
 - **实机边界**：上一节安装和概览验证仍使用版本 0.1.2 / 3 的相同功能代码；本节只验证新版本元数据与安装包，不将其计为 0.1.3 下载后启动验收。未扩展系统模式切换、真实菜单栏截图、其他硬件、长期性能、Developer ID 签名或 Apple 公证验收。
 - 发行说明位于 `docs/releases/v0.1.3.md`；本轮发布构建未替换正在运行的本机应用。
+
+## 菜单栏电量连续填充（2026-10-09 13:27，Asia/Hong_Kong）
+
+- 按用户要求，将菜单栏电池的 25% 分档符号替换为按实际百分比绘制的填充：100% 填满、50% 填充一半、0% 留空。充电时保留真实电量并叠加闪电，电量未知、无效或过期显示问号；悬停与无障碍描述补充电量。保留能源模式颜色、18 × 10 pt 尺寸及 1×/2× 图像。
+- **自动验证**：最终代码执行 `zsh scripts/test.sh`，17 项更新测试和 29 项核心/能源模式测试通过，共 46 项；`zsh scripts/build-app.sh` 成功并通过严格签名完整性校验。日志为 `build/evidence/proportional-battery-tests.log` 与 `proportional-battery-build.log`。
+- **原生像素夹具**：直接编译本次 `MenuBarStyle.swift`，检查 0–100 的每个整数百分比、缺失及无效值、充电/非充电、四种模式、浅色/深色和 1×/2×，共 3,328 组通过。非充电图标中部填充宽度的最大误差为 0.0035 pt 以内；充电图标在闪电区域之外保留真实填充边界，未知电量与 0% 的像素不同。此项为离屏绘制，不代表实机电量状态矩阵。日志为 `build/evidence/proportional-battery-rendering.log`，放大预览为 `proportional-battery-preview.png`。
+- **本机安装与 UI**：正常退出旧版后更新 `/Applications/MacPower.app`，严格签名完整性与构建/安装二进制一致性检查通过。实际启动后原生弹层显示外接电源、正在充电、电量 13%，实时数据正常刷新；沿用现有偏好和本地历史。没有切换系统能源模式或控制充电。
+- **边界与版本**：本次为 v0.1.3 / 构建号 4 基础上的未发布本地改动，已发布的 GitHub v0.1.3 附件不包含本节调整。未取得真实菜单栏截图；0%、50%、100% 及完整颜色/主题矩阵来自夹具，不计作新增硬件验收。没有扩展长期运行、其他设备、功率校准或公证结论。
+- 前版备份为 `build/backups/MacPower-before-proportional-fill-20261009-132659.app`；安装二进制 SHA-256 为 `26261a2ffc6feec96223ec453ec0e9ecdd9a6abe501b570c040a32c9c09f8c27`。
+
+## v0.1.4 发布构建（2026-10-09 14:51，Asia/Hong_Kong）
+
+- 版本更新为 0.1.4、构建号 5，包含菜单栏电池连续填充、充电闪电与电量无障碍说明，沿用能源模式颜色；保持预览版分发。
+- **自动验证**：重新执行 `zsh scripts/test.sh`，17 项更新测试与 29 项核心/能源模式测试通过，共 46 项；重新编译当前 `MenuBarStyle.swift` 并运行 3,328 组 AppKit 离屏像素检查，最大填充宽度误差为 0.0035 pt 以内。日志为 `build/evidence/release-v0.1.4-tests.log` 与 `release-v0.1.4-rendering.log`。
+- **构建与安装包**：`zsh scripts/package-release.sh` 调用 `zsh scripts/build-app.sh` 成功，严格签名完整性通过。ZIP 共 9 个条目，CRC、4 个包内文件与构建输出逐字节一致、可执行权限、版本 0.1.4 / 5 及 arm64 架构均检查通过；从 ZIP 解压后再次验证架构与严格签名。未包含 AppleDouble、个人历史、原始设备诊断或个人构建路径。日志为 `build/evidence/release-v0.1.4-build.log` 与 `release-v0.1.4-artifact-checks.json`。
+- ZIP SHA-256 为 `e56252557d69e3321fc9cfe6fe062203a79f24f359e0b21430e5f9bdefda23df`；发布二进制 SHA-256 为 `e66feb85523bfbf4e2c55fff5524ccf9b7d4b0fc350e0df6ffd5963913a0aff5`。附件 `verification.json` 记录最终源码提交、构建及实际验证范围。
+- **实机边界**：上一节的本机安装仍使用版本元数据 0.1.3 / 4，不计为 v0.1.4 下载后启动验收。本轮发布构建未替换正在运行的应用，未扩展真实菜单栏截图、系统模式切换、其他硬件、长期运行、完整无障碍或 Apple 公证结论。
+- 发行说明位于 `docs/releases/v0.1.4.md`。

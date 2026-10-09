@@ -96,7 +96,9 @@ import PowerCore
         guard let button = statusItem?.button else { return }
         let energyMode = store.energyMode
         let appearance = button.effectiveAppearance
-        button.image = MenuBarStyle.image(symbol:store.batterySymbol,mode:energyMode,appearance:appearance)
+        let percent = store.isStale ? nil : store.snapshot.percent
+        button.image = MenuBarStyle.image(percent:percent,isCharging:!store.isStale && store.snapshot.isCharging == true,
+                                         mode:energyMode,appearance:appearance)
         let extra = store.preferences.showPercent && store.preferences.menuMetric != .percent ? store.snapshot.percent.map { " \($0)%" } ?? "" : ""
         let compactText = store.menuText.replacingOccurrences(of:" W",with:"W") + extra
         let color = MenuBarStyle.color(for:energyMode,appearance:appearance)
@@ -105,7 +107,8 @@ import PowerCore
         ])
         statusItem.length = NSStatusItem.variableLength
         let mode = store.isStale ? "" : "，能源模式：\(energyMode.title)（\(store.energyModeSource)）"
-        let description = "\(store.preferences.menuMetric.title) \(store.menuText)，\(store.state.title)\(mode)"
+        let battery = percent.map { "\($0)%" } ?? "未提供"
+        let description = "\(store.preferences.menuMetric.title) \(store.menuText)，\(store.state.title)，电池电量：\(battery)\(mode)"
         button.toolTip = "MacPower · \(description)\n更新于 \(store.snapshot.timestamp.formatted(date:.omitted,time:.standard))"
         button.setAccessibilityLabel("MacPower，\(description)")
     }
