@@ -122,7 +122,8 @@ struct LivePanel: View {
                 Button(action:onTrends) {
                     VStack(alignment:.leading,spacing:8) {
                         Text("电池功率 · 最近 15 分钟").font(.system(size:12,weight:.medium)).foregroundStyle(Palette.secondary)
-                        PowerChart(points:store.selectedPoints(minutes:15),minutes:15,series:[.battery],compact:true)
+                        PowerChart(points:store.selectedChartPoints(minutes:15),minutes:15,series:[.battery],endDate:store.chartTimestamp,compact:true)
+                            .equatable()
                             .frame(height:70)
                     }.padding(.vertical,17)
                 }.buttonStyle(.plain).accessibilityLabel("查看最近 15 分钟电池功率趋势")
@@ -244,10 +245,11 @@ enum ChartSeries: String, CaseIterable, Identifiable {
     func metric(_ point: HistoryPoint) -> MetricSummary { self == .input ? point.input : self == .battery ? point.battery : point.system }
 }
 
-struct PowerChart: View {
+struct PowerChart: View, Equatable {
     var points: [HistoryPoint]
     var minutes: Int
     var series: Set<ChartSeries>
+    var endDate: Date
     var compact = false
     var body: some View {
         if points.isEmpty {
@@ -266,7 +268,7 @@ struct PowerChart: View {
                     }
                 }
             }.chartLegend(.hidden).chartYScale(domain:domain)
-                .chartXScale(domain:Date().addingTimeInterval(-Double(minutes)*60)...Date())
+                .chartXScale(domain:endDate.addingTimeInterval(-Double(minutes)*60)...endDate)
                 .chartXAxis { AxisMarks(values:.automatic(desiredCount:compact ? 2 : 4)) { value in
                     AxisValueLabel(format:.dateTime.hour().minute(),anchor:value.index == 0 ? .topLeading : value.index == value.count-1 ? .topTrailing : .top)
                         .font(.system(size:9))
@@ -312,7 +314,7 @@ struct HistoryPanel: View {
             }.padding(.top,18)
             Picker("趋势时段",selection:$minutes) { Text("15 分钟").tag(15);Text("1 小时").tag(60);Text("24 小时").tag(1440) }.pickerStyle(.segmented).labelsHidden()
             HStack { Text("功率 / W");Spacer();Text("分钟均值") }.font(.system(size:10)).foregroundStyle(Palette.secondary)
-            PowerChart(points:points,minutes:minutes,series:series).frame(height:expanded ? 270 : 210)
+            PowerChart(points:points,minutes:minutes,series:series,endDate:store.chartTimestamp).equatable().frame(height:expanded ? 270 : 210)
             HStack(spacing:15) {
                 ForEach(ChartSeries.allCases) { item in
                     Button {
@@ -331,7 +333,7 @@ struct HistoryPanel: View {
             if !expanded { Button { store.showHistory?(minutes,series) } label: { Label("打开完整趋势",systemImage:"arrow.up.right") }.buttonStyle(.plain).foregroundStyle(Palette.blue).font(.system(size:12)).padding(.bottom,10) }
         }.foregroundStyle(Palette.text)
     }
-    private var points: [HistoryPoint] { store.selectedPoints(minutes:minutes) }
+    private var points: [HistoryPoint] { store.selectedChartPoints(minutes:minutes) }
     private var coverage: Int { min(100,Int(points.reduce(0){$0+$1.coveredSeconds}/Double(minutes*60)*100)) }
     private func summary(_ title:String,value:String) -> some View { VStack(alignment:.leading,spacing:8) { Text(title).font(.system(size:11)).foregroundStyle(Palette.secondary);Text(value).font(.system(size:23,weight:.semibold)).monospacedDigit() } }
 }

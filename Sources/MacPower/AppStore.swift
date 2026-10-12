@@ -11,13 +11,14 @@ import UpdateCore
 @MainActor final class AppStore: ObservableObject {
     let updater = UpdateStore()
     @Published var settingsPage: SettingsPage = .appearance
-    @Published var snapshot = PowerSnapshot.unavailable()
+    private(set) var snapshot = PowerSnapshot.unavailable()
     @Published var health: HealthReport?
-    @Published var state: PowerState = .updating
-    @Published private(set) var energyModes = EnergyModeProfiles(at: .distantPast)
+    private(set) var state: PowerState = .updating
+    private(set) var energyModes = EnergyModeProfiles(at: .distantPast)
     @Published var message: String?
     @Published var healthMessage: String?
     @Published var revision = 0
+    @Published private(set) var chartRevision = 0
     @Published var preferences: Preferences {
         didSet {
             // Never mutate an @Published property inside its observer. Decode validates persisted values;
@@ -25,7 +26,7 @@ import UpdateCore
             if let data = try? JSONEncoder().encode(preferences) { UserDefaults.standard.set(data, forKey: "preferences.v1") }
             if oldValue.recordHistory != preferences.recordHistory { recorder.breakContinuity() }
             recorder.prune(now: Date(), days: preferences.retentionDays)
-            restartTimer(); persist(); onUpdate?()
+            refreshCharts(force: true); restartTimer(); persist(); onUpdate?()
         }
     }
     @Published var notificationStatus = "未开启时不申请通知权限"
@@ -47,6 +48,9 @@ import UpdateCore
     private var sleeping = false
     private var generation = 0
     private var panelVisible = false
+    private var chartSelections: [Int: [HistoryPoint]] = [:]
+    private(set) var chartTimestamp = Date()
+    private var lastChartRefresh = Date.distantPast
     private var lastSave = Date.distantPast
     private var lastHealth = Date.distantPast
     private var healthLoading = false
@@ -77,6 +81,7 @@ import UpdateCore
         }
         recorder.prune(now:Date(),days:preferences.retentionDays)
         health = recorder.archive.health.last
+        refreshCharts(force: true)
     }
 
     func start() {
@@ -96,8 +101,9 @@ import UpdateCore
         restartTimer(); sample(); refreshHealth()
     }
     func setVisible(_ visible: Bool) {
+        guard panelVisible != visible else { return }
         panelVisible = visible; restartTimer()
-        if visible { refreshEnergyModes(force: true); sample() }
+        if visible { refreshCharts(force: true); refreshEnergyModes(force: true); sample() }
     }
     private func restartTimer() {
         timer?.invalidate(); guard !sleeping else { return }
@@ -110,15 +116,21 @@ import UpdateCore
         guard !sleeping, !sampling else { return }
         refreshEnergyModes()
         sampling = true; let token = generation
-        if Date().timeIntervalSince(snapshot.timestamp) > max(5, interval*3) { state = .stale; onUpdate?() }
+        if Date().timeIntervalSince(snapshot.timestamp) > max(5, interval*3) {
+            publishVisibleReadings(); state = .stale; onUpdate?()
+        }
         Task {
             let result = await Task.detached(priority:.utility) { PowerReader.read() }.value
             sampling = false
             guard token == generation, !sleeping else { return }
-            snapshot = result; state = stabilizer.accept(result)
+            publishVisibleReadings()
+            snapshot = result
+            let nextState = stabilizer.accept(result)
+            if state != nextState { state = nextState }
             if preferences.recordHistory && state != .updating && state != .unavailable {
                 recorder.record(result,expectedInterval:interval)
             } else { recorder.breakContinuity() }
+            refreshCharts()
             if Date().timeIntervalSince(lastSave) >= 60 { recorder.prune(now:Date(),days:preferences.retentionDays); persist() }
             if state != .updating && state != .unavailable { deliver(reminders.evaluate(result,preferences:preferences)) }
             else { reminders.resetContinuity() }
@@ -135,6 +147,7 @@ import UpdateCore
             let result = await Task.detached(priority: .utility) { PowerReader.readEnergyModes() }.value
             energyModesLoading = false
             guard token == generation, !sleeping else { return }
+            publishVisibleReadings()
             energyModes = result; onUpdate?()
         }
     }
@@ -150,10 +163,12 @@ import UpdateCore
         }
     }
     private func sleep() {
+        publishVisibleReadings()
         sleeping = true; generation += 1; timer?.invalidate(); state = .sleeping
         recorder.breakContinuity(); reminders.resetContinuity(); persist(); onUpdate?()
     }
     private func wake() {
+        publishVisibleReadings()
         sleeping = false; generation += 1; stabilizer.reset(); recorder.breakContinuity()
         energyModes = EnergyModeProfiles(at: .distantPast)
         state = .updating; restartTimer(); sample(); refreshHealth()
@@ -162,6 +177,12 @@ import UpdateCore
         generation += 1; sleeping = true; timer?.invalidate(); observer = nil
         if let powerModeObserver { NotificationCenter.default.removeObserver(powerModeObserver) }
         persist(); ioQueue.sync {}
+    }
+
+    private func publishVisibleReadings() {
+        // A minimized hosting view still observes ObservableObject. Keep background
+        // telemetry current for the status item without invalidating hidden UI graphs.
+        if panelVisible { objectWillChange.send() }
     }
 
     func persist() {
@@ -183,7 +204,23 @@ import UpdateCore
             do { try FileManager.default.copyItem(at:historyURL,to:historyURL.deletingPathExtension().appendingPathExtension("backup-\(Int(Date().timeIntervalSince1970)).json")) }
             catch { message = "无法备份原历史文件，未清除任何记录。"; return }
         }
-        writeEnabled = true; recorder.clear(); revision += 1; persist(); message = "本地历史已清除"
+        writeEnabled = true; recorder.clear(); revision += 1; refreshCharts(force: true); persist(); message = "本地历史已清除"
+    }
+    // Minute aggregates do not need a Charts rebuild for every one-second hardware read.
+    // Keep display snapshots separate from the recorder so CSV exports retain all samples.
+    private func refreshCharts(force: Bool = false) {
+        let now = Date()
+        guard force || (panelVisible && now.timeIntervalSince(lastChartRefresh) >= 15) else { return }
+        let recent = points.filter { $0.lastSampleAt >= now.addingTimeInterval(-86_400) }
+        chartSelections = [1440: recent]
+        for minutes in [15, 60] {
+            let cutoff = now.addingTimeInterval(-Double(minutes) * 60)
+            chartSelections[minutes] = recent.filter { $0.lastSampleAt >= cutoff }
+        }
+        chartTimestamp = now; lastChartRefresh = now; chartRevision += 1
+    }
+    func selectedChartPoints(minutes: Int) -> [HistoryPoint] {
+        chartSelections[minutes] ?? []
     }
     func selectedPoints(minutes: Int) -> [HistoryPoint] {
         let cutoff = Date().addingTimeInterval(-Double(minutes)*60)

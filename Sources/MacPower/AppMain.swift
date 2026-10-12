@@ -23,6 +23,14 @@ import PowerCore
     private var overviewWindow: NSWindow?
     private var appearanceObserver: NSKeyValueObservation?
     private var updateTimer: Timer?
+    private var lastIcon: StatusIconKey?
+    private var lastTitle: String?
+    private struct StatusIconKey: Equatable {
+        var percent: Int?
+        var charging: Bool
+        var mode: EnergyMode
+        var appearance: NSAppearance.Name
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -89,23 +97,32 @@ import PowerCore
         }
         // A manual app appearance does not change the system menu bar or its mode colors.
         if NSApp.appearance?.name != appearance?.name { NSApp.appearance = appearance }
-        popover.appearance = appearance
-        for window in [settingsWindow,historyWindow,detailWindow,overviewWindow].compactMap({$0}) { window.appearance = appearance }
+        if popover.appearance?.name != appearance?.name { popover.appearance = appearance }
+        for window in [settingsWindow,historyWindow,detailWindow,overviewWindow].compactMap({$0}) {
+            if window.appearance?.name != appearance?.name { window.appearance = appearance }
+        }
     }
     private func updateStatus() {
         guard let button = statusItem?.button else { return }
         let energyMode = store.energyMode
         let appearance = button.effectiveAppearance
         let percent = store.isStale ? nil : store.snapshot.percent
-        button.image = MenuBarStyle.image(percent:percent,isCharging:!store.isStale && store.snapshot.isCharging == true,
-                                         mode:energyMode,appearance:appearance)
+        let icon = StatusIconKey(percent:percent,charging:!store.isStale && store.snapshot.isCharging == true,
+                                 mode:energyMode,appearance:appearance.name)
+        let iconChanged = icon != lastIcon
+        if iconChanged {
+            button.image = MenuBarStyle.image(percent:percent,isCharging:icon.charging,mode:energyMode,appearance:appearance)
+            lastIcon = icon
+        }
         let extra = store.preferences.showPercent && store.preferences.menuMetric != .percent ? store.snapshot.percent.map { " \($0)%" } ?? "" : ""
         let compactText = store.menuText.replacingOccurrences(of:" W",with:"W") + extra
-        let color = MenuBarStyle.color(for:energyMode,appearance:appearance)
-        button.attributedTitle = NSAttributedString(string:compactText,attributes:[
-            .font: NSFont.monospacedDigitSystemFont(ofSize:11,weight:.medium), .foregroundColor: color
-        ])
-        statusItem.length = NSStatusItem.variableLength
+        if compactText != lastTitle || iconChanged {
+            button.attributedTitle = NSAttributedString(string:compactText,attributes:[
+                .font: NSFont.monospacedDigitSystemFont(ofSize:11,weight:.medium),
+                .foregroundColor: MenuBarStyle.color(for:energyMode,appearance:appearance)
+            ])
+            lastTitle = compactText
+        }
         let mode = store.isStale ? "" : "，能源模式：\(energyMode.title)（\(store.energyModeSource)）"
         let battery = percent.map { "\($0)%" } ?? "未提供"
         let description = "\(store.preferences.menuMetric.title) \(store.menuText)，\(store.state.title)，电池电量：\(battery)\(mode)"
@@ -208,7 +225,14 @@ import PowerCore
             self.updateSamplingVisibility()
         }
     }
+    func windowDidMiniaturize(_ notification: Notification) { updateSamplingVisibility() }
+    func windowDidDeminiaturize(_ notification: Notification) { updateSamplingVisibility() }
+    func windowDidChangeOcclusionState(_ notification: Notification) { updateSamplingVisibility() }
     private func updateSamplingVisibility() {
-        store.setVisible(popover.isShown || [settingsWindow,historyWindow,detailWindow,overviewWindow].compactMap({$0}).contains(where:{$0.isVisible}))
+        // Settings contain no live power readings. Hidden and minimized windows must not
+        // promote background polling to one second or refresh their cached trend data.
+        store.setVisible(popover.isShown || [historyWindow,detailWindow,overviewWindow].compactMap({$0}).contains(where:{
+            $0.isVisible && !$0.isMiniaturized && $0.occlusionState.contains(.visible)
+        }))
     }
 }
