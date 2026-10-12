@@ -258,3 +258,18 @@
 - ZIP SHA-256：`3c48af081a497f013368d0ab9ebfda18bc97415904ab0ab9b09a5b7a789d7eca`；发布二进制 SHA-256：`0019950d8ec8990eaa1bdd821e0da9a72321bb08573cd7594f163ccb9bd7677e`。`verification.json` 随包记录最终源码提交、构建与验证范围。
 - **运行时边界**：上一节的本机深色充电界面验证使用包版本 0.1.6 / 7 的同功能代码，其余状态和主题来自模拟渲染。本节验证 0.1.7 构建与安装包，不将其作为下载后安装启动验收；本次打包不替换当前本机应用。其他设备/系统、长期性能、功率校准、Developer ID 签名和公证仍未扩展验收。
 - 发行说明位于 `docs/releases/v0.1.7.md`。
+
+## 命令行安装与更新（2026-10-12，Asia/Hong_Kong）
+
+- **使用方式**：新增 `zsh scripts/install.sh`，首次安装与后续更新共用同一命令。读取公开发布订阅，包含预览版；下载发布 ZIP 与 SHA256SUMS，校验哈希、包路径、版本、arm64 架构和签名完整性后才退出旧版并替换。已有相同或更高版本时跳过；失败恢复旧包，并清理自己的安装锁与临时文件。支持只检查、指定版本/目录和不启动；不调用 sudo，不改变登录启动、通知授权或系统安全设置。
+- **原生自动验证**：执行 `zsh scripts/test.sh`，23 项更新测试与 29 项核心/能源模式测试全部通过，共 52 项；执行 `zsh scripts/build-app.sh`，输出至独立的 `build/command-install/MacPower.app`，Release 构建与严格签名检查通过。日志位于 `build/evidence/command-install/native-tests.log`、`native-build.log`。
+- **安装夹具**：`zsh scripts/test-install.sh` 的 16 项离线检查通过，覆盖首次安装、旧版升级、同版跳过、不降级、只检查、下载失败、错误哈希、包版本不符、签名损坏、退出失败、启动失败回退、首次启动失败清理、信号中断回退、并发锁保护、错误发布订阅，以及数字版本比较/非法版本。使用临时目录与签名应用夹具，不启动夹具应用、不触碰真实历史。日志为 `build/evidence/command-install/installer-tests.log`。
+- **真实在线更新与启动**：在本机 macOS 27.0.1、Apple Silicon 上执行默认安装命令，从已运行的 `/Applications/MacPower.app` 0.1.6 更新到公开 v0.1.7。实际完成下载、验证、旧版正常退出、替换与新进程启动，安装路径确认无误；二进制 SHA-256 为 `0019950d8ec8990eaa1bdd821e0da9a72321bb08573cd7594f163ccb9bd7677e`，与已发布 v0.1.7 一致。再次执行默认命令跳过替换。日志为 `live-install.log`、`live-repeat.log`，摘要为 `live-install.json`，均位于同一证据目录。
+- **数据保留与验收边界**：更新前后均有 3,584 条历史记录，排除可能正在更新的最后两个时间桶后，逐条核对 3,582 条历史均保留；更新前后所有偏好值一致。本轮确认安装路径、版本和运行进程，未新增原生界面截图、其他设备/系统、真实新用户首次安装、长时间运行、Developer ID 签名、公证或所有 Gatekeeper 状态验收。该次验收时安装脚本尚未提交；后续发布与远端入口验证另行记录。
+
+## 公开命令行入口与项目首页（2026-10-12，Asia/Hong_Kong）
+
+- **公开入口**：README 使用 `curl -fsSL https://raw.githubusercontent.com/Linjay/MacPower/main/scripts/install.sh | zsh`。安装脚本为独立文件，从标准输入执行也不依赖仓库工作目录；首次安装和后续更新使用同一命令，不要求下载源码或配置额外运行环境。
+- **首页范围**：保留产品介绍、功能、真实界面截图、系统要求、安装更新、使用与隐私说明；移除构建测试、网页原型、设计过程、性能测量和研发验收内容。最低系统要求来自应用部署目标，不表示本轮新增旧版系统实机验收。
+- **发布前检查**：最终源码执行 `zsh scripts/test.sh`、`zsh scripts/build-app.sh` 和 16 项离线安装检查；构建输出使用独立目录，未覆盖正在运行的应用。在仓库外目录从标准输入执行安装脚本，确认识别已装 0.1.7 并跳过同版替换。证据位于 `build/evidence/command-publish/`。
+- **远端入口验收方式**：推送后逐字节比对 GitHub 原始文件与本地脚本，在无源码目录的工作目录执行 README 中的直接命令，并验证远端下载到临时安装目录的首次安装/升级，保存 `remote-entry.log`、`remote-install.log`、`remote-upgrade.log` 与 `remote-delivery.json`。临时目录检查使用 `--no-open`，不启动第二个实例；运行时 UI 验收仍以上一节本机结果为准。
