@@ -182,11 +182,13 @@ struct PowerFlowView: View {
                     if store.snapshot.adapterWatts != nil { Text("· 系统报告").foregroundStyle(Palette.blue); Image(systemName:"chevron.right").font(.system(size:9)) }
                 }.font(.system(size:11)).foregroundStyle(Palette.secondary)
             }.buttonStyle(.plain).padding(.top,9)
-            FlowBranches(external:store.snapshot.externalConnected == true,battery:(store.snapshot.battery.value ?? 0),active:!store.isStale)
-                .frame(height:44).padding(.horizontal,55)
-            HStack(alignment:.top) {
+            FlowBranches(charging:(store.snapshot.battery.value.map { $0 > 0.5 } ?? false),active:!store.isStale && store.snapshot.externalConnected == true)
+                .frame(height:store.snapshot.externalConnected == true ? 48 : 24)
+                .padding(.horizontal,15)
+            HStack(alignment:.top,spacing:0) {
                 metric(label:"整机耗电",icon:"laptopcomputer",power:store.snapshot.system,color:Palette.text,key:"system")
-                Spacer(minLength:10)
+                BatteryFlowArrow(active:!store.isStale && (store.snapshot.battery.value.map { $0 < -0.5 } ?? false),supplement:store.state == .supplement)
+                    .frame(width:PowerFlowLayout.columnGap,height:PowerFlowLayout.iconHeight)
                 metric(label:store.snapshot.batteryLabel,icon:store.batterySymbol,power:store.snapshot.battery,color:store.state == .supplement ? Palette.warning : Palette.teal,key:"battery")
             }.padding(.horizontal,15)
         }
@@ -198,40 +200,57 @@ struct PowerFlowView: View {
     private func metric(label:String,icon:String,power:PowerMetric,color:Color,key:String) -> some View {
         Button { store.showMetric?(key) } label: {
             VStack(spacing:4) {
-                Image(systemName:icon).font(.system(size:33,weight:.light)).frame(height:35).foregroundStyle(key == "system" ? Palette.secondary : color)
+                Image(systemName:icon).font(.system(size:33,weight:.light)).frame(height:PowerFlowLayout.iconHeight).foregroundStyle(key == "system" ? Palette.secondary : color)
                 Text(label).font(.system(size:12)).foregroundStyle(Palette.secondary)
                 value(power,fontSize:27,signed:key == "battery").foregroundStyle(color)
                 Text(power.quality == .estimated ? "估算" : " ").font(.system(size:10)).foregroundStyle(Palette.secondary)
             }.frame(maxWidth:.infinity)
-        }.buttonStyle(.plain).help("查看\(label)的来源和解释").accessibilityLabel("\(label) \(reading(power,signed:key == "battery")) 瓦，\(power.quality.label)")
+        }.buttonStyle(.plain).frame(maxWidth:.infinity).help("查看\(label)的来源和解释").accessibilityLabel("\(label) \(reading(power,signed:key == "battery")) 瓦，\(power.quality.label)")
     }
 }
 
+private enum PowerFlowLayout {
+    static let columnGap: CGFloat = 60
+    static let iconHeight: CGFloat = 35
+}
+
 struct FlowBranches: View {
-    var external: Bool
-    var battery: Double
+    var charging: Bool
     var active: Bool
     var body: some View {
         GeometryReader { geo in
             let w = geo.size.width
+            // Use the same equal columns and center gap as the metric row below.
+            let columnWidth = (w - PowerFlowLayout.columnGap) / 2
+            let left = columnWidth / 2
+            let right = w - left
             if active {
                 Path { p in
-                    if external {
-                        p.move(to:CGPoint(x:w/2,y:4)); p.addLine(to:CGPoint(x:w/2,y:13))
-                        p.addQuadCurve(to:CGPoint(x:w/2-9,y:22),control:CGPoint(x:w/2,y:22));p.addLine(to:CGPoint(x:10,y:22))
-                        p.addQuadCurve(to:CGPoint(x:0,y:32),control:CGPoint(x:0,y:22));p.addLine(to:CGPoint(x:0,y:38))
-                        if battery > 0.5 {
-                            p.move(to:CGPoint(x:w/2,y:13));p.addQuadCurve(to:CGPoint(x:w/2+9,y:22),control:CGPoint(x:w/2,y:22))
-                            p.addLine(to:CGPoint(x:w-10,y:22));p.addQuadCurve(to:CGPoint(x:w,y:32),control:CGPoint(x:w,y:22));p.addLine(to:CGPoint(x:w,y:38))
-                        }
+                    p.move(to:CGPoint(x:w/2,y:5)); p.addLine(to:CGPoint(x:w/2,y:14))
+                    p.addQuadCurve(to:CGPoint(x:w/2-10,y:24),control:CGPoint(x:w/2,y:24));p.addLine(to:CGPoint(x:left+10,y:24))
+                    p.addQuadCurve(to:CGPoint(x:left,y:34),control:CGPoint(x:left,y:24));p.addLine(to:CGPoint(x:left,y:39))
+                    if charging {
+                        p.move(to:CGPoint(x:w/2,y:14));p.addQuadCurve(to:CGPoint(x:w/2+10,y:24),control:CGPoint(x:w/2,y:24))
+                        p.addLine(to:CGPoint(x:right-10,y:24));p.addQuadCurve(to:CGPoint(x:right,y:34),control:CGPoint(x:right,y:24));p.addLine(to:CGPoint(x:right,y:39))
                     }
-                }.stroke(Palette.blue,style:StrokeStyle(lineWidth:1.4,lineCap:.round))
-                if external { Image(systemName:"arrowtriangle.down.fill").font(.system(size:8)).foregroundStyle(Palette.blue).position(x:0,y:38) }
-                if external && battery > 0.5 { Image(systemName:"arrowtriangle.down.fill").font(.system(size:8)).foregroundStyle(Palette.blue).position(x:w,y:38) }
-                if battery < -0.5 {
-                    HStack(spacing:0) { Image(systemName:"arrowtriangle.left.fill").font(.system(size:8)); Rectangle().frame(height:1.4) }
-                        .foregroundStyle(external ? Palette.warning : Palette.teal).frame(width:w-30).position(x:w/2,y:35)
-                }
+                }.stroke(Palette.blue,style:StrokeStyle(lineWidth:1.5,lineCap:.round))
+                Image(systemName:"arrowtriangle.down.fill").font(.system(size:8)).foregroundStyle(Palette.blue).position(x:left,y:39)
+                if charging { Image(systemName:"arrowtriangle.down.fill").font(.system(size:8)).foregroundStyle(Palette.blue).position(x:right,y:39) }
+            }
+        }.accessibilityHidden(true)
+    }
+}
+
+struct BatteryFlowArrow: View {
+    var active: Bool
+    var supplement: Bool
+    var body: some View {
+        ZStack {
+            if active {
+                HStack(spacing:0) {
+                    Image(systemName:"arrowtriangle.left.fill").font(.system(size:8))
+                    Capsule().frame(height:1.5)
+                }.foregroundStyle(supplement ? Palette.warning : Palette.teal)
             }
         }.accessibilityHidden(true)
     }
