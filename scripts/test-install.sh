@@ -55,6 +55,9 @@ run_case() {
     if /bin/zsh -c '
         source "$1"
         fixture_root="$2" scenario="$3" fixture_target="$4"
+        if [[ "$scenario" == no-developer-tools ]]; then
+            export DEVELOPER_DIR="$fixture_root/missing-developer-tools"
+        fi
         macpower_download() {
             print -r -- "$1" >> "$fixture_target/downloads.log"
             if [[ "$scenario" == download-failure && "$1" == *.zip ]]; then return 22; fi
@@ -109,6 +112,7 @@ run_case() {
 }
 
 run_case fresh fresh '' installed
+run_case no-developer-tools no-developer-tools '' installed
 run_case upgrade upgrade 0.1.6 installed
 run_case equal equal 0.1.7 unchanged
 run_case newer newer 0.1.8 unchanged
@@ -125,4 +129,4 @@ run_case concurrent-install locked 0.1.6 failed
 run_case invalid-feed invalid-feed 0.1.6 failed
 /bin/zsh -c 'source "$1"; macpower_newer 0.1.10 0.1.9; ! macpower_newer 0.1.9 0.1.10; ! macpower_version "../../0.1.7"' test "$ROOT/scripts/install.sh"
 print -- 'PASS numeric-version-and-invalid-tag'
-print -- '16 offline installer checks passed; no app was launched or user history changed.'
+print -- '17 offline installer checks passed; no app was launched or user history changed.'

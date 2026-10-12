@@ -271,5 +271,6 @@
 
 - **公开入口**：README 使用 `curl -fsSL https://raw.githubusercontent.com/Linjay/MacPower/main/scripts/install.sh | zsh`。安装脚本为独立文件，从标准输入执行也不依赖仓库工作目录；首次安装和后续更新使用同一命令，不要求下载源码或配置额外运行环境。
 - **首页范围**：保留产品介绍、功能、真实界面截图、系统要求、安装更新、使用与隐私说明；移除构建测试、网页原型、设计过程、性能测量和研发验收内容。最低系统要求来自应用部署目标，不表示本轮新增旧版系统实机验收。
-- **发布前检查**：最终源码执行 `zsh scripts/test.sh`、`zsh scripts/build-app.sh` 和 16 项离线安装检查；构建输出使用独立目录，未覆盖正在运行的应用。在仓库外目录从标准输入执行安装脚本，确认识别已装 0.1.7 并跳过同版替换。证据位于 `build/evidence/command-publish/`。
+- **发布前检查**：最终源码执行 `zsh scripts/test.sh`、`zsh scripts/build-app.sh` 和 17 项离线安装检查；构建输出使用独立目录，未覆盖正在运行的应用。在仓库外目录从标准输入执行安装脚本，确认识别已装 0.1.7 并跳过同版替换。证据位于 `build/evidence/command-publish/`。
+- **开发工具依赖回归**：将 `DEVELOPER_DIR` 指向不存在的目录，原来的 `lipo` 架构校验会报 `xcrun` 错误。改用系统 `/usr/bin/file` 检查 arm64 Mach-O 架构后，该场景安装成功，并继续通过签名检查。此检查验证安装流程不借用开发工具，不等于新增一台未安装 Xcode 的真实设备验收。前后日志为 `no-developer-tools-before.log` 和 `installer-tests.log`。
 - **远端入口验收方式**：推送后逐字节比对 GitHub 原始文件与本地脚本，在无源码目录的工作目录执行 README 中的直接命令，并验证远端下载到临时安装目录的首次安装/升级，保存 `remote-entry.log`、`remote-install.log`、`remote-upgrade.log` 与 `remote-delivery.json`。临时目录检查使用 `--no-open`，不启动第二个实例；运行时 UI 验收仍以上一节本机结果为准。

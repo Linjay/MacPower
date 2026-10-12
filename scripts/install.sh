@@ -174,7 +174,9 @@ macpower_install() {
         [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$plist")" == app.macpower.local ]] || macpower_fail '安装包标识不匹配。'
         [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$plist")" == "$version" ]] || macpower_fail '安装包版本不匹配。'
         [[ -x "$app/Contents/MacOS/MacPower" ]] || macpower_fail '安装包缺少可执行文件。'
-        /usr/bin/lipo "$app/Contents/MacOS/MacPower" -verify_arch arm64
+        # lipo is an Xcode/Command Line Tools shim on macOS; file is a system tool.
+        local executable_format="$(/usr/bin/file -b "$app/Contents/MacOS/MacPower")"
+        [[ "$executable_format" =~ 'Mach-O 64-bit executable arm64([^[:alnum:]_]|$)' ]] || macpower_fail '安装包不包含 arm64 可执行文件。'
         /usr/bin/codesign --verify --deep --strict "$app"
 
         stage="$(/usr/bin/mktemp -d "$install_dir/.MacPower-install.XXXXXX")"
