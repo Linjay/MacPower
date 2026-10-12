@@ -3,10 +3,30 @@
 
 macpower_fail() { print -u2 -- "MacPower: $*"; exit 1; }
 
+macpower_curl() { /usr/bin/curl "$@"; }
+macpower_asset_addresses() {
+    /usr/bin/dig @1.1.1.1 release-assets.githubusercontent.com A +short +time=2 +tries=1
+}
+
 macpower_download() {
-    /usr/bin/curl --fail --location --silent --show-error \
-        --proto '=https' --proto-redir '=https' --connect-timeout 15 \
-        --max-time 180 --retry 2 --output "$2" "$1"
+    local -a options=(--fail --location --silent --show-error --proto '=https'
+        --proto-redir '=https' --connect-timeout 10 --max-time 180 --retry 1)
+    local result
+    if macpower_curl "${options[@]}" --output "$2" "$1"; then return 0; else result=$?; fi
+    # Some networks return an unreachable address for GitHub's asset CDN.
+    # Retry only release assets with public DNS; TLS still verifies the hostname,
+    # and the same checksum/signature gates run before any app replacement.
+    if [[ "$1" == https://github.com/Linjay/MacPower/releases/download/* ]] && (( result == 6 || result == 7 || result == 28 )); then
+        print -u2 -- 'GitHub 附件连接失败，正在使用备用 DNS 重试…'
+        local addresses="$(macpower_asset_addresses)" address
+        for address in "${(@f)addresses}"; do
+            [[ "$address" =~ '^([0-9]{1,3}\.){3}[0-9]{1,3}$' ]] || continue
+            if macpower_curl "${options[@]}" --resolve "release-assets.githubusercontent.com:443:$address" --output "$2" "$1"; then
+                return 0
+            else result=$?; fi
+        done
+    fi
+    return "$result"
 }
 
 macpower_version() {

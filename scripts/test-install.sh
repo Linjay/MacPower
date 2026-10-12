@@ -129,4 +129,30 @@ run_case concurrent-install locked 0.1.6 failed
 run_case invalid-feed invalid-feed 0.1.6 failed
 /bin/zsh -c 'source "$1"; macpower_newer 0.1.10 0.1.9; ! macpower_newer 0.1.9 0.1.10; ! macpower_version "../../0.1.7"' test "$ROOT/scripts/install.sh"
 print -- 'PASS numeric-version-and-invalid-tag'
-print -- '17 offline installer checks passed; no app was launched or user history changed.'
+/bin/zsh -c '
+    source "$1"
+    attempt=0
+    macpower_asset_addresses() { print "unexpected text\n185.199.108.133"; }
+    macpower_curl() {
+        (( attempt += 1 ))
+        if (( attempt == 1 )); then return 28; fi
+        [[ " $* " == *" --resolve release-assets.githubusercontent.com:443:185.199.108.133 "* ]]
+    }
+    macpower_download "https://github.com/Linjay/MacPower/releases/download/v0.1.7/SHA256SUMS" unused
+    [[ "$attempt" == 2 ]]
+' test "$ROOT/scripts/install.sh"
+print -- 'PASS release-asset-dns-retry'
+/bin/zsh -c '
+    source "$1"
+    attempt=0
+    macpower_asset_addresses() { print "185.199.108.133"; }
+    macpower_curl() { (( attempt += 1 )); return 28; }
+    if macpower_download "https://github.com/Linjay/MacPower/releases.atom" unused; then exit 1; fi
+    [[ "$attempt" == 1 ]]
+    attempt=0
+    macpower_curl() { (( attempt += 1 )); return 22; }
+    if macpower_download "https://github.com/Linjay/MacPower/releases/download/v0.1.7/SHA256SUMS" unused; then exit 1; fi
+    [[ "$attempt" == 1 ]]
+' test "$ROOT/scripts/install.sh"
+print -- 'PASS no-dns-retry-for-feed-or-http-errors'
+print -- '19 offline installer checks passed; no app was launched or user history changed.'
