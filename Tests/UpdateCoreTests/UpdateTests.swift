@@ -134,6 +134,18 @@ struct ReleaseSelectionTests {
         #expect(calls == 0)
         #expect(restarted.state == .failed(UpdateError.rateLimited(retry).localizedDescription))
     }
+    @Test func legacyAPICooldownDoesNotBlockPublicFallback() async {
+        let defaults = isolatedDefaults(); defer { clear(defaults) }
+        let retry = Date().addingTimeInterval(3600)
+        defaults.set(retry, forKey: "updates.retryAfter")
+        var calls = 0
+        let store = UpdateStore(currentVersion: "1.0.0", defaults: defaults, fetch: { _ in calls += 1; return nil })
+        store.check(); await complete(store)
+        #expect(calls == 1)
+        #expect(store.state == .noReleases)
+        #expect(defaults.object(forKey: "updates.retryAfter") == nil)
+        #expect(defaults.object(forKey: "updates.apiRetryAfter") as? Date == retry)
+    }
     @Test func repeatedClicksAndCancelledChannelResultsCannotOverwriteState() async throws {
         let defaults = isolatedDefaults(); defer { clear(defaults) }
         var continuation: CheckedContinuation<AppRelease?, Never>?
@@ -168,13 +180,18 @@ private final class StubURLProtocol: URLProtocol {
     static var body = Data("[]".utf8)
     static var failure: URLError?
     static var requestSeen: URLRequest?
+    static var responses: [String: (Int, [String: String], Data)] = [:]
+    static var requests: [URLRequest] = []
+    static var finalURLs: [String: URL] = [:]
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
         Self.requestSeen = request
+        Self.requests.append(request)
         if let failure = Self.failure { client?.urlProtocol(self, didFailWithError: failure); return }
-        client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: Self.status, httpVersion: nil, headerFields: Self.headers)!, cacheStoragePolicy: .notAllowed)
-        client?.urlProtocol(self, didLoad: Self.body)
+        let (status, headers, body) = Self.responses[request.url!.absoluteString] ?? (Self.status, Self.headers, Self.body)
+        client?.urlProtocol(self, didReceive: HTTPURLResponse(url: Self.finalURLs[request.url!.absoluteString] ?? request.url!, statusCode: status, httpVersion: nil, headerFields: headers)!, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: body)
         client?.urlProtocolDidFinishLoading(self)
     }
     override func stopLoading() {}
@@ -183,9 +200,75 @@ private final class StubURLProtocol: URLProtocol {
 @Suite(.serialized) struct ReleaseClientTests {
     private func client(status: Int = 200, headers: [String: String] = [:], body: Data = Data("[]".utf8), failure: URLError? = nil) -> ReleaseClient {
         StubURLProtocol.status = status; StubURLProtocol.headers = headers; StubURLProtocol.body = body; StubURLProtocol.failure = failure
+        StubURLProtocol.responses = [:]; StubURLProtocol.requests = []; StubURLProtocol.finalURLs = [:]
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [StubURLProtocol.self]
-        return ReleaseClient(session: URLSession(configuration: configuration))
+        let defaults = UserDefaults(suiteName: "MacPower.ReleaseClientTests")!
+        defaults.removePersistentDomain(forName: "MacPower.ReleaseClientTests")
+        return ReleaseClient(session: URLSession(configuration: configuration), defaults: defaults)
+    }
+    @Test func exhaustedAPIStillFindsPreviewAndUploadedPackage() async throws {
+        let client = client(status: 403, headers: ["X-RateLimit-Remaining": "0", "X-RateLimit-Reset": "2000000000"])
+        StubURLProtocol.responses["https://github.com/Linjay/MacPower/releases.atom"] = (200, [:], Data("""
+        <feed xmlns="http://www.w3.org/2005/Atom">
+          <id>tag:github.com,2008:https://github.com/Linjay/MacPower/releases</id>
+          <entry><link rel="alternate" href="https://github.com/Linjay/MacPower/releases/tag/v0.1.5"/>
+          <content type="html">&lt;p&gt;降低重复刷新开销。&lt;/p&gt;</content></entry>
+        </feed>
+        """.utf8))
+        StubURLProtocol.responses["https://github.com/Linjay/MacPower/releases/tag/v0.1.5"] = (200, [:], Data("""
+        <h1 data-view-component="true" class="tmp-mr-3 d-inline">MacPower v0.1.5</h1>
+        <span class="Label Label--warning">Pre-release</span>
+        <select-panel></select-panel>
+        <div data-test-selector="body-content">Notes</div>
+        <include-fragment src="https://github.com/Linjay/MacPower/releases/expanded_assets/v0.1.5"></include-fragment>
+        """.utf8))
+        StubURLProtocol.responses["https://github.com/Linjay/MacPower/releases/expanded_assets/v0.1.5"] = (200, [:], Data("""
+        <div class="Box"><a href="/Linjay/MacPower/releases/download/v0.1.5/MacPower-0.1.5-\(ReleaseClient.architecture).zip">Download</a></div>
+        """.utf8))
+        let result = try #require(try await client.latest(includingPreviews: true))
+        #expect(result.version.number == "0.1.5")
+        #expect(result.isPrerelease)
+        #expect(result.downloadURL?.lastPathComponent == "MacPower-0.1.5-\(ReleaseClient.architecture).zip")
+        #expect(result.notes == "降低重复刷新开销。")
+        _ = try await client.latest(includingPreviews: true)
+        #expect(StubURLProtocol.requests.filter { $0.url == ReleaseClient.endpoint }.count == 1)
+        #expect(StubURLProtocol.requests.allSatisfy { $0.value(forHTTPHeaderField: "Authorization") == nil && $0.httpBody == nil })
+    }
+    @Test func stableFallbackNeverTreatsPlainPreviewTagsAsStable() async throws {
+        let client = client(status: 429)
+        let latest = ReleaseClient.releasesURL.appendingPathComponent("latest")
+        StubURLProtocol.responses[latest.absoluteString] = (200, [:], Data("<html>All releases are previews</html>".utf8))
+        StubURLProtocol.finalURLs[latest.absoluteString] = ReleaseClient.releasesURL
+        #expect(try await client.latest(includingPreviews: false) == nil)
+        #expect(!StubURLProtocol.requests.contains { $0.url == ReleaseClient.feedURL })
+    }
+    @Test func stableFallbackFindsOlderStableOutsideRecentFeed() async throws {
+        let client = client(status: 429)
+        let latest = ReleaseClient.releasesURL.appendingPathComponent("latest")
+        StubURLProtocol.finalURLs[latest.absoluteString] = ReleaseClient.releasesURL.appendingPathComponent("tag/v1.0.0")
+        StubURLProtocol.responses[latest.absoluteString] = (200, [:], Data("""
+        <h1 data-view-component="true">Stable version</h1><span class="Label">Latest</span>
+        <select-panel></select-panel><div data-test-selector="body-content">Pre-release is mentioned only in notes</div>
+        <include-fragment src="https://github.com/Linjay/MacPower/releases/expanded_assets/v1.0.0"></include-fragment>
+        """.utf8))
+        StubURLProtocol.responses["https://github.com/Linjay/MacPower/releases/expanded_assets/v1.0.0"] = (200, [:], Data("<div class=\"Box\"><a href=\"/archive/v1.0.0.zip\">Source</a></div>".utf8))
+        let result = try #require(try await client.latest(includingPreviews: false))
+        #expect(result.version.number == "1.0.0")
+        #expect(!result.isPrerelease)
+        #expect(result.downloadURL == nil)
+    }
+    @Test func invalidFallbackCannotReportSuccess() async {
+        let client = client(status: 429)
+        StubURLProtocol.responses[ReleaseClient.feedURL.absoluteString] = (200, [:], Data("<html>Temporarily unavailable</html>".utf8))
+        do { _ = try await client.latest(includingPreviews: true); Issue.record("Expected invalid feed failure") }
+        catch { #expect(error as? UpdateError == .invalidResponse) }
+    }
+    @Test func cancelledAPIDoesNotStartFallback() async {
+        let client = client(failure: URLError(.cancelled))
+        do { _ = try await client.latest(includingPreviews: true); Issue.record("Expected cancellation") }
+        catch { #expect(error is CancellationError) }
+        #expect(StubURLProtocol.requests.count == 1)
     }
     @Test func liveRequestShapeHasNoCredentialsOrTelemetry() async throws {
         let result = try await client(body: releases([entry("v0.1.1", preview: true)])).latest(includingPreviews: true)

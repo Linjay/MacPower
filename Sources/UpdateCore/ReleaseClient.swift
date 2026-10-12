@@ -28,28 +28,77 @@ public enum UpdateError: Error, LocalizedError, Equatable {
 public struct ReleaseClient: Sendable {
     public static let releasesURL = URL(string: "https://github.com/Linjay/MacPower/releases")!
     public static let endpoint = URL(string: "https://api.github.com/repos/Linjay/MacPower/releases?per_page=100")!
+    public static let feedURL = URL(string: "https://github.com/Linjay/MacPower/releases.atom")!
+    static let apiRetryKey = "updates.apiRetryAfter"
     private let session: URLSession
-    public init(session: URLSession? = nil) {
+    private let cooldown: APICooldown
+    public init(session: URLSession? = nil, defaults: UserDefaults = .standard) {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.httpShouldSetCookies = false
         configuration.urlCache = nil
         configuration.timeoutIntervalForRequest = 15
         configuration.timeoutIntervalForResource = 30
         self.session = session ?? URLSession(configuration: configuration)
+        cooldown = APICooldown(defaults: defaults)
     }
 
     public func latest(includingPreviews: Bool) async throws -> AppRelease? {
-        var request = URLRequest(url: Self.endpoint)
+        if let retry = cooldown.retryAfter, retry > Date() {
+            return try await latestFromPublicPages(includingPreviews: includingPreviews)
+        }
+        do {
+            let (data, _) = try await load(Self.endpoint, accept: "application/vnd.github+json")
+            let release = try Self.latest(from: data, includingPreviews: includingPreviews)
+            cooldown.retryAfter = nil
+            return release
+        } catch UpdateError.rateLimited(let retry) {
+            cooldown.retryAfter = retry ?? Date().addingTimeInterval(3600)
+            return try await latestFromPublicPages(includingPreviews: includingPreviews)
+        }
+    }
+
+    private func latestFromPublicPages(includingPreviews: Bool) async throws -> AppRelease? {
+        let selected: PublicReleaseEntry
+        let page: Data
+        if includingPreviews {
+            let (feed, _) = try await load(Self.feedURL, accept: "application/atom+xml")
+            guard let entry = try PublicReleaseFeed.parse(feed).max(by: { $0.version < $1.version }) else { return nil }
+            selected = entry
+            (page, _) = try await load(Self.releasesURL.appendingPathComponent("tag").appendingPathComponent(entry.tag))
+        } else {
+            // Atom has no prerelease flag and only contains recent entries. GitHub's stable
+            // redirect also finds an older stable release when all recent entries are previews.
+            let (data, response) = try await load(Self.releasesURL.appendingPathComponent("latest"))
+            guard let url = response.url else { throw UpdateError.invalidResponse }
+            if url == Self.releasesURL { return nil }
+            guard url.pathComponents.count == 6,
+                  url.pathComponents.prefix(5).elementsEqual(["/", "Linjay", "MacPower", "releases", "tag"]),
+                  let version = ReleaseVersion(url.lastPathComponent) else { throw UpdateError.invalidResponse }
+            selected = PublicReleaseEntry(tag: url.lastPathComponent, version: version, notes: "")
+            page = data
+        }
+        let preview = try PublicReleaseFeed.isPreview(page: page, tag: selected.tag) || selected.version.isPrerelease
+        guard includingPreviews || !preview else { throw UpdateError.invalidResponse }
+        let (assets, _) = try await load(Self.releasesURL.appendingPathComponent("expanded_assets").appendingPathComponent(selected.tag))
+        let download = try PublicReleaseFeed.downloadURL(assets: assets, tag: selected.tag, version: selected.version, architecture: Self.architecture)
+        return AppRelease(version: selected.version, isPrerelease: preview, notes: selected.notes,
+                          pageURL: Self.releasesURL.appendingPathComponent("tag").appendingPathComponent(selected.tag), downloadURL: download)
+    }
+
+    private func load(_ url: URL, accept: String = "text/html") async throws -> (Data, HTTPURLResponse) {
+        var request = URLRequest(url: url)
         request.cachePolicy = .reloadIgnoringLocalCacheData
-        request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
-        request.setValue("2022-11-28", forHTTPHeaderField: "X-GitHub-Api-Version")
+        request.setValue(accept, forHTTPHeaderField: "Accept")
+        if url == Self.endpoint { request.setValue("2022-11-28", forHTTPHeaderField: "X-GitHub-Api-Version") }
         request.setValue("MacPower-UpdateChecker", forHTTPHeaderField: "User-Agent")
         let data: Data, response: URLResponse
         do { (data, response) = try await session.data(for: request) }
         catch is CancellationError { throw CancellationError() }
         catch let error as URLError where error.code == .cancelled { throw CancellationError() }
         catch { throw UpdateError.network }
-        guard let http = response as? HTTPURLResponse else { throw UpdateError.invalidResponse }
+        guard let http = response as? HTTPURLResponse, let responseURL = http.url,
+              responseURL.scheme == "https", responseURL.host == url.host,
+              responseURL.user == nil, responseURL.password == nil, data.count <= 4_000_000 else { throw UpdateError.invalidResponse }
         if http.statusCode == 429 || (http.statusCode == 403 && http.value(forHTTPHeaderField: "X-RateLimit-Remaining") == "0") {
             let reset = http.value(forHTTPHeaderField: "X-RateLimit-Reset").flatMap(Double.init).map(Date.init(timeIntervalSince1970:))
             let retry = http.value(forHTTPHeaderField: "Retry-After").flatMap(Double.init).map { Date().addingTimeInterval($0) }
@@ -57,7 +106,7 @@ public struct ReleaseClient: Sendable {
         }
         guard http.statusCode != 404 else { throw UpdateError.unavailable }
         guard http.statusCode == 200 else { throw UpdateError.http(http.statusCode) }
-        return try Self.latest(from: data, includingPreviews: includingPreviews)
+        return (data, http)
     }
 
     /// Select by version, not creation order: a late maintenance release must not hide a newer version.
@@ -104,5 +153,17 @@ public struct ReleaseClient: Sendable {
         let name: String
         let state: String
         let size: Int
+    }
+
+    // UserDefaults supports concurrent access; this wrapper has no other shared state.
+    private struct APICooldown: @unchecked Sendable {
+        let defaults: UserDefaults
+        var retryAfter: Date? {
+            get { defaults.object(forKey: ReleaseClient.apiRetryKey) as? Date }
+            nonmutating set {
+                if let newValue { defaults.set(newValue, forKey: ReleaseClient.apiRetryKey) }
+                else { defaults.removeObject(forKey: ReleaseClient.apiRetryKey) }
+            }
+        }
     }
 }

@@ -34,10 +34,15 @@ public enum UpdateState: Equatable {
 
     public init(currentVersion: String? = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String,
                 defaults: UserDefaults = .standard,
-                fetch: @escaping (Bool) async throws -> AppRelease? = { try await ReleaseClient().latest(includingPreviews: $0) }) {
+                fetch: ((Bool) async throws -> AppRelease?)? = nil) {
         self.currentVersion = currentVersion ?? "开发版"
         self.defaults = defaults
-        self.fetch = fetch
+        self.fetch = fetch ?? { try await ReleaseClient(defaults: defaults).latest(includingPreviews: $0) }
+        // Old versions paused the entire check after API throttling. Only pause the API now.
+        if let retry = defaults.object(forKey: "updates.retryAfter") as? Date {
+            defaults.set(retry, forKey: ReleaseClient.apiRetryKey)
+            defaults.removeObject(forKey: "updates.retryAfter")
+        }
         automaticChecks = defaults.bool(forKey: "updates.automatic")
         // MacPower currently ships previews. Separate keys preserve all existing monitoring preferences.
         includingPreviews = defaults.object(forKey: "updates.previews") as? Bool ?? true
@@ -54,7 +59,7 @@ public enum UpdateState: Equatable {
     public func check(now: Date = Date()) {
         guard task == nil else { return }
         guard let installed = ReleaseVersion(currentVersion) else { state = .failed(UpdateError.invalidVersion.localizedDescription); return }
-        if let retry = defaults.object(forKey: "updates.retryAfter") as? Date, now < retry {
+        if let retry = defaults.object(forKey: "updates.serviceRetryAfter") as? Date, now < retry {
             state = .failed(UpdateError.rateLimited(retry).localizedDescription); return
         }
         defaults.set(now, forKey: "updates.lastAttempt")
@@ -68,11 +73,11 @@ public enum UpdateState: Equatable {
                 else { self.state = .noReleases }
                 self.lastChecked = Date()
                 self.defaults.set(self.lastChecked, forKey: "updates.lastChecked")
-                self.defaults.removeObject(forKey: "updates.retryAfter")
+                self.defaults.removeObject(forKey: "updates.serviceRetryAfter")
             } catch {
                 guard let self, !Task.isCancelled, token == self.generation else { return }
                 if case UpdateError.rateLimited(let retry) = error {
-                    self.defaults.set(retry ?? Date().addingTimeInterval(3600), forKey: "updates.retryAfter")
+                    self.defaults.set(retry ?? Date().addingTimeInterval(3600), forKey: "updates.serviceRetryAfter")
                 }
                 self.state = .failed(error.localizedDescription)
             }
