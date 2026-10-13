@@ -69,6 +69,10 @@ import PowerCore
         store.showHistory = { [weak self] minutes, series in self?.openHistory(minutes:minutes,series:series) }
         store.showMetric = { [weak self] key in self?.openMetric(key) }
         store.quit = { NSApp.terminate(nil) }
+        store.updater.onRestartRequested = {
+            // applicationWillTerminate flushes history before the installer replaces the bundle.
+            NSApp.terminate(nil)
+        }
         updateAppearance(); updateStatus(); store.start()
         store.updater.checkIfDue()
         updateTimer = Timer.scheduledTimer(withTimeInterval:3600,repeats:true) { [weak self] _ in
@@ -136,7 +140,8 @@ import PowerCore
             menu.addItem(withTitle:"在窗口中打开",action:#selector(overviewAction),keyEquivalent:"").target = self
             menu.addItem(withTitle:"设置…",action:#selector(settingsAction),keyEquivalent:",").target = self
             let updateTitle: String
-            if case .available(let release) = store.updater.state { updateTitle = "发现新版本 \(release.version.number)…" }
+            if store.updater.installationState.isBusy { updateTitle = "正在更新…" }
+            else if case .available(let release) = store.updater.state { updateTitle = "发现新版本 \(release.version.number)…" }
             else { updateTitle = "检查更新…" }
             menu.addItem(withTitle:updateTitle,action:#selector(checkForUpdatesAction),keyEquivalent:"").target = self
             menu.addItem(.separator())

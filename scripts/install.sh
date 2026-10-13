@@ -3,6 +3,21 @@
 
 macpower_fail() { print -u2 -- "MacPower: $*"; exit 1; }
 
+macpower_event() {
+    [[ -n "${MACPOWER_UPDATE_EVENT_FILE:-}" ]] || return 0
+    print -r -- "$1" > "$MACPOWER_UPDATE_EVENT_FILE.tmp"
+    /bin/mv -- "$MACPOWER_UPDATE_EVENT_FILE.tmp" "$MACPOWER_UPDATE_EVENT_FILE"
+}
+
+macpower_wait_for_exit() {
+    local pid="$1" i
+    for i in {1..200}; do
+        /bin/kill -0 "$pid" 2>/dev/null || return 0
+        /bin/sleep 0.1
+    done
+    return 1
+}
+
 macpower_curl() { /usr/bin/curl "$@"; }
 macpower_asset_addresses() {
     /usr/bin/dig @1.1.1.1 release-assets.githubusercontent.com A +short +time=2 +tries=1
@@ -80,12 +95,14 @@ macpower_open() {
 macpower_install() {
     emulate -L zsh
     setopt errexit nounset pipefail localtraps
-    local requested="" install_dir="" no_open=0 check_only=0
+    local requested="" install_dir="" no_open=0 check_only=0 wait_pid=""
     while (( $# )); do
         case "$1" in
-            --version|--dir)
+            --version|--dir|--wait-pid)
                 (( $# >= 2 )) || macpower_fail "$1 缺少参数。"
-                if [[ "$1" == --version ]]; then requested="$2"; else install_dir="$2"; fi
+                if [[ "$1" == --version ]]; then requested="$2"
+                elif [[ "$1" == --wait-pid ]]; then wait_pid="$2"
+                else install_dir="$2"; fi
                 shift 2 ;;
             --no-open) no_open=1; shift ;;
             --check) check_only=1; shift ;;
@@ -110,6 +127,11 @@ macpower_install() {
     fi
     install_dir="${install_dir:A}"
     local target="$install_dir/MacPower.app"
+    if [[ -n "$wait_pid" ]]; then
+        [[ "$wait_pid" =~ '^[1-9][0-9]*$' && -n "$requested" && -n "${MACPOWER_UPDATE_EVENT_FILE:-}" ]] || macpower_fail '应用更新参数无效。'
+        local running_executable="$(/bin/ps -p "$wait_pid" -o comm=)"
+        [[ "${running_executable:A}" == "$target/Contents/MacOS/MacPower" ]] || macpower_fail '运行中的应用与更新位置不一致。'
+    fi
     [[ ! -L "$target" ]] || macpower_fail "安装位置是符号链接，请指定实际应用目录: $target"
     local installed=""
     if [[ -e "$target" ]]; then
@@ -119,7 +141,7 @@ macpower_install() {
     fi
 
     local workspace="$(/usr/bin/mktemp -d "${TMPDIR:-/tmp}/macpower.XXXXXX")"
-    local stage="" new_installed=0 complete=0 was_running=0 lock=""
+    local stage="" new_installed=0 complete=0 was_running=0 quit_done=0 lock=""
     # zsh runs a function's EXIT trap after restoring that function's locals.
     # Keep transaction state in this outer scope so cleanup can still access it.
     () {
@@ -127,6 +149,12 @@ macpower_install() {
         trap '
             local result=$?
             if (( ! complete )); then
+                # Explicit returns from functions inside an EXIT trap can stop
+                # the rest of that trap. Keep event writing and relaunch inline.
+                if [[ -n "${MACPOWER_UPDATE_EVENT_FILE:-}" ]]; then
+                    print -r -- failed > "$MACPOWER_UPDATE_EVENT_FILE.tmp" 2>/dev/null &&
+                        /bin/mv -- "$MACPOWER_UPDATE_EVENT_FILE.tmp" "$MACPOWER_UPDATE_EVENT_FILE" 2>/dev/null || true
+                fi
                 # Inspect the renamed bundle, including interruption between a move
                 # and its following command; never discard an un-restored backup.
                 if [[ -n "$stage" && -d "$stage/previous.app" ]]; then
@@ -139,7 +167,7 @@ macpower_install() {
                 elif (( new_installed )); then
                     /bin/rm -rf -- "$target"
                 fi
-                if (( was_running )) && [[ -d "$target" ]]; then macpower_open "$target" || true; fi
+                if (( was_running && quit_done )) && [[ -d "$target" ]]; then /usr/bin/open "$target" || true; fi
             fi
             [[ -n "$stage" ]] && /bin/rm -rf -- "$stage"
             [[ -n "$lock" ]] && /bin/rmdir -- "$lock" 2>/dev/null
@@ -174,8 +202,10 @@ macpower_install() {
         local archive="MacPower-$version-arm64.zip"
         local base="https://github.com/Linjay/MacPower/releases/download/v$version"
         print -- "正在下载并校验 MacPower $version…"
+        macpower_event downloading
         macpower_download "$base/SHA256SUMS" "$workspace/SHA256SUMS" || macpower_fail '无法下载校验文件，旧版未更改。'
         macpower_download "$base/$archive" "$workspace/$archive" || macpower_fail '无法下载当前架构的安装包，旧版未更改。'
+        macpower_event verifying
         local expected="$(/usr/bin/awk -v asset="$archive" '$2 == asset || $2 == "*" asset {print $1}' "$workspace/SHA256SUMS")"
         [[ "$expected" =~ '^[0-9a-fA-F]{64}$' ]] || macpower_fail '发布校验文件缺少唯一、有效的 SHA-256。'
         local actual="$(/usr/bin/shasum -a 256 "$workspace/$archive")"
@@ -193,6 +223,12 @@ macpower_install() {
         local app="$workspace/unpacked/MacPower.app" plist="$workspace/unpacked/MacPower.app/Contents/Info.plist"
         [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$plist")" == app.macpower.local ]] || macpower_fail '安装包标识不匹配。'
         [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$plist")" == "$version" ]] || macpower_fail '安装包版本不匹配。'
+        local minimum_os="$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$plist")"
+        [[ "$minimum_os" =~ '^[0-9]+\.[0-9]+(\.[0-9]+)?$' ]] || macpower_fail '安装包系统要求无效。'
+        local normalized_os="$os_version" normalized_minimum="$minimum_os"
+        [[ "$normalized_os" == *.*.* ]] || normalized_os+=.0
+        [[ "$normalized_minimum" == *.*.* ]] || normalized_minimum+=.0
+        ! macpower_newer "$normalized_minimum" "$normalized_os" || macpower_fail "新版本需要 macOS $minimum_os 或更新版本，旧版未更改。"
         [[ -x "$app/Contents/MacOS/MacPower" ]] || macpower_fail '安装包缺少可执行文件。'
         # lipo is an Xcode/Command Line Tools shim on macOS; file is a system tool.
         local executable_format="$(/usr/bin/file -b "$app/Contents/MacOS/MacPower")"
@@ -203,7 +239,15 @@ macpower_install() {
         /usr/bin/ditto --noextattr "$app" "$stage/MacPower.app"
         /usr/bin/codesign --verify --deep --strict "$stage/MacPower.app"
         [[ -n "$(macpower_pids "$target")" ]] && was_running=1
-        macpower_quit "$target" || macpower_fail '旧版退出失败。'
+        if [[ -n "$wait_pid" ]]; then
+            /bin/kill -0 "$wait_pid" 2>/dev/null || macpower_fail '应用已退出，更新已取消。'
+            was_running=1
+            macpower_event restarting
+            macpower_wait_for_exit "$wait_pid" || macpower_fail '应用未能退出，旧版未更改。'
+        else
+            macpower_quit "$target" || macpower_fail '旧版退出失败。'
+        fi
+        quit_done=1
         if [[ -d "$target" ]]; then
             /bin/mv -- "$target" "$stage/previous.app"
         fi
@@ -212,6 +256,7 @@ macpower_install() {
         /usr/bin/codesign --verify --deep --strict "$target"
         if (( ! no_open )); then macpower_open "$target" || macpower_fail '新版启动失败。'; fi
         complete=1
+        macpower_event completed
         print -- "MacPower $version 已安装: $target"
         print -- '历史和设置已保留。以后再次运行同一命令即可更新。'
     }

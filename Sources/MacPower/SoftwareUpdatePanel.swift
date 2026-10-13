@@ -7,6 +7,7 @@ struct SoftwareUpdatePanel: View {
     @ViewState private var openError: String?
 
     private var checking: Bool { updater.state == .checking }
+    private var installing: Bool { updater.installationState.isBusy }
     var body: some View {
         VStack(alignment:.leading, spacing:18) {
             VStack(alignment:.leading, spacing:9) {
@@ -21,19 +22,23 @@ struct SoftwareUpdatePanel: View {
                 }
                 HStack(spacing:12) {
                     Button(checking ? "正在检查…" : "检查更新") { openError = nil; updater.check() }
-                        .disabled(checking)
-                    Button("所有发布版本 ↗") { open(ReleaseClient.releasesURL) }
+                        .disabled(checking || installing)
+                    Button("所有发布版本 ↗") { open(ReleaseClient.releasesURL) }.disabled(installing)
                 }.controlSize(.large)
             }.padding(16).frame(maxWidth:.infinity,alignment:.leading)
                 .background(Palette.secondarySurface,in:RoundedRectangle(cornerRadius:9))
 
-            Toggle("自动检查更新",isOn:$updater.automaticChecks).font(.system(size:12))
+            Toggle("自动检查更新",isOn:$updater.automaticChecks).font(.system(size:12)).disabled(installing)
             Text("开启后每天检查一次，结果显示在这里和菜单栏右键菜单中。").font(.system(size:11)).foregroundStyle(Palette.secondary)
-            Toggle("包含预览版",isOn:$updater.includingPreviews).font(.system(size:12)).disabled(checking)
+            Toggle("包含预览版",isOn:$updater.includingPreviews).font(.system(size:12)).disabled(checking || installing)
             Text("MacPower 目前以预览版发布；关闭后只检查正式版。").font(.system(size:11)).foregroundStyle(Palette.secondary)
             Divider().overlay(Palette.line)
-            Text("检查时连接 GitHub 获取版本信息，不发送功率记录或硬件标识。下载由浏览器完成；请查看新版系统要求，退出旧版后用新应用替换，本地历史和设置会保留。")
+            Text("点击“更新”后会自动下载、校验并安装，完成后重新启动 MacPower，本地历史和设置会保留。检查与下载连接 GitHub，不发送功率记录或硬件标识。")
                 .font(.system(size:11)).foregroundStyle(Palette.secondary).lineSpacing(4)
+            if case .failed(let message) = updater.installationState {
+                Label("更新未完成",systemImage:"exclamationmark.triangle").font(.system(size:12,weight:.semibold)).foregroundStyle(Palette.warning)
+                Text(message).font(.system(size:11)).foregroundStyle(Palette.secondary).lineSpacing(4)
+            }
             if let openError { Text(openError).font(.system(size:11)).foregroundStyle(Palette.warning) }
         }
     }
@@ -58,11 +63,17 @@ struct SoftwareUpdatePanel: View {
                 }.frame(maxHeight:130)
             }
             HStack(spacing:12) {
-                if let download = release.downloadURL {
-                    Button("下载新版本 ↗") { open(download) }.buttonStyle(.borderedProminent).tint(Palette.blue)
+                if release.downloadURL != nil && !installing {
+                    Button("更新") { updater.installUpdate() }.buttonStyle(.borderedProminent).tint(Palette.blue)
                 }
-                Button("发行说明 ↗") { open(release.pageURL) }
+                Button("发行说明 ↗") { open(release.pageURL) }.disabled(installing)
             }.controlSize(.large)
+            if installing {
+                HStack(spacing:10) {
+                    ProgressView().controlSize(.small)
+                    Text(installationTitle).font(.system(size:12,weight:.semibold))
+                }.foregroundStyle(Palette.blue)
+            }
             if release.downloadURL == nil {
                 Text("此版本未提供当前架构的安装包，请在发行说明中查看支持范围。").font(.system(size:11)).foregroundStyle(Palette.warning)
             }
@@ -74,5 +85,14 @@ struct SoftwareUpdatePanel: View {
 
     private func open(_ url: URL) {
         openError = NSWorkspace.shared.open(url) ? nil : "无法打开浏览器，请稍后重试。"
+    }
+
+    private var installationTitle: String {
+        switch updater.installationState {
+        case .downloading: return "正在下载更新…"
+        case .verifying: return "正在校验更新…"
+        case .restarting: return "正在安装并重新启动…"
+        default: return ""
+        }
     }
 }

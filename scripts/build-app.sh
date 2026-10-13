@@ -10,6 +10,7 @@ cp "$BIN_DIR/MacPower" "$APP/Contents/MacOS/MacPower"
 /usr/bin/strip -S "$APP/Contents/MacOS/MacPower"
 swift scripts/make-icon.swift "$PWD/build/MacPower.iconset"
 /usr/bin/iconutil -c icns "$PWD/build/MacPower.iconset" -o "$APP/Contents/Resources/MacPower.icns"
+cp scripts/install.sh "$APP/Contents/Resources/InstallUpdate.sh"
 cat > "$APP/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -21,8 +22,8 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 <key>CFBundleDisplayName</key><string>MacPower</string>
 <key>CFBundleIconFile</key><string>MacPower</string>
 <key>CFBundlePackageType</key><string>APPL</string>
-<key>CFBundleShortVersionString</key><string>0.1.7</string>
-<key>CFBundleVersion</key><string>8</string>
+<key>CFBundleShortVersionString</key><string>0.1.8</string>
+<key>CFBundleVersion</key><string>9</string>
 <key>LSMinimumSystemVersion</key><string>14.0</string>
 <key>LSUIElement</key><true/>
 <key>NSHighResolutionCapable</key><true/>

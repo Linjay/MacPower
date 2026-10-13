@@ -28,6 +28,12 @@ make_asset "$WORK/assets"
 make_asset "$WORK/wrong-version"
 /usr/libexec/PlistBuddy -c 'Set :CFBundleShortVersionString 0.1.7' "$WORK/source/MacPower.app/Contents/Info.plist"
 /usr/bin/codesign --force --sign - "$WORK/source/MacPower.app" 2>/dev/null
+# Correct checksum/signature, incompatible deployment target.
+/usr/libexec/PlistBuddy -c 'Set :LSMinimumSystemVersion 999.0' "$WORK/source/MacPower.app/Contents/Info.plist"
+/usr/bin/codesign --force --sign - "$WORK/source/MacPower.app" 2>/dev/null
+make_asset "$WORK/incompatible-os"
+/usr/libexec/PlistBuddy -c 'Set :LSMinimumSystemVersion 14.0' "$WORK/source/MacPower.app/Contents/Info.plist"
+/usr/bin/codesign --force --sign - "$WORK/source/MacPower.app" 2>/dev/null
 # Correct version/checksum, corrupted signature.
 print -- 'corrupted' >> "$WORK/source/MacPower.app/Contents/MacOS/MacPower"
 make_asset "$WORK/bad-signature"
@@ -69,6 +75,7 @@ run_case() {
                 local assets="$fixture_root/assets"
                 [[ "$scenario" == wrong-version ]] && assets="$fixture_root/wrong-version"
                 [[ "$scenario" == bad-signature ]] && assets="$fixture_root/bad-signature"
+                [[ "$scenario" == incompatible-os ]] && assets="$fixture_root/incompatible-os"
                 /bin/cp "$assets/${1##*/}" "$2"
                 if [[ "$scenario" == bad-checksum && "$1" == */SHA256SUMS ]]; then
                     print -- "0000000000000000000000000000000000000000000000000000000000000000  MacPower-0.1.7-arm64.zip" > "$2"
@@ -81,11 +88,34 @@ run_case() {
             if [[ "$scenario" == interrupted ]]; then kill -TERM $$; fi
             [[ "$scenario" != launch-failure ]]
         }
-        if [[ "$scenario" == launch-failure || "$scenario" == interrupted ]]; then macpower_install --dir "$fixture_target"
+        if [[ "$scenario" == handoff || "$scenario" == abandoned-handoff || "$scenario" == handoff-timeout ]]; then
+            /bin/cp /bin/sleep "$fixture_target/MacPower.app/Contents/MacOS/MacPower"
+            /usr/bin/codesign --force --sign - "$fixture_target/MacPower.app" 2>/dev/null
+            "$fixture_target/MacPower.app/Contents/MacOS/MacPower" 60 & fixture_pid=$!
+            /bin/sleep 0.1
+            export MACPOWER_UPDATE_EVENT_FILE="$fixture_target/event"
+            macpower_event() {
+                print -r -- "$1" >> "$fixture_target/phases"
+                if [[ "$scenario" == handoff && "$1" == restarting || "$scenario" == abandoned-handoff && "$1" == verifying ]]; then
+                    /bin/kill -TERM "$fixture_pid"; wait "$fixture_pid" 2>/dev/null || true
+                fi
+                return 0
+            }
+            if [[ "$scenario" == handoff-timeout ]]; then macpower_wait_for_exit() { return 1; }; fi
+            macpower_install --dir "$fixture_target" --version 0.1.7 --wait-pid "$fixture_pid" --no-open
+        elif [[ "$scenario" == invalid-parent ]]; then
+            export MACPOWER_UPDATE_EVENT_FILE="$fixture_target/event"
+            macpower_install --dir "$fixture_target" --version 0.1.7 --wait-pid "$$" --no-open
+        elif [[ "$scenario" == launch-failure || "$scenario" == interrupted ]]; then macpower_install --dir "$fixture_target"
         elif [[ "$scenario" == check ]]; then macpower_install --dir "$fixture_target" --check
         else macpower_install --dir "$fixture_target" --no-open
         fi
     ' macpower-test "$ROOT/scripts/install.sh" "$WORK" "$scenario" "$dir" > "$WORK/$label.log" 2>&1; then result=0; else result=$?; fi
+    # Stop a placeholder parent retained by the timeout case, never a real app.
+    if [[ "$scenario" == handoff-timeout ]]; then
+        local fixture_pid="$(/bin/ps -axo pid=,comm= | /usr/bin/awk -v exe="$dir/MacPower.app/Contents/MacOS/MacPower" '{pid=$1;sub(/^[[:space:]]*[0-9]+[[:space:]]+/, "");if ($0==exe) print pid}')"
+        [[ -z "$fixture_pid" ]] || /bin/kill -TERM "$fixture_pid"
+    fi
     if [[ "$expect" == failed && "$result" == 0 || "$expect" != failed && "$result" != 0 ]]; then
         print -u2 -- "FAIL $label: unexpected exit status $result"
         cat "$WORK/$label.log"
@@ -121,6 +151,11 @@ run_case download-failure download-failure 0.1.6 failed
 run_case bad-checksum bad-checksum 0.1.6 failed
 run_case wrong-version wrong-version 0.1.6 failed
 run_case bad-signature bad-signature 0.1.6 failed
+run_case incompatible-os incompatible-os 0.1.6 failed
+run_case application-handoff handoff 0.1.6 installed
+run_case abandoned-handoff abandoned-handoff 0.1.6 failed
+run_case handoff-timeout handoff-timeout 0.1.6 failed
+run_case invalid-parent invalid-parent 0.1.6 failed
 run_case quit-failure quit-failure 0.1.6 failed
 run_case launch-rollback launch-failure 0.1.6 failed
 run_case fresh-launch-failure launch-failure '' failed
@@ -155,4 +190,4 @@ print -- 'PASS release-asset-dns-retry'
     [[ "$attempt" == 1 ]]
 ' test "$ROOT/scripts/install.sh"
 print -- 'PASS no-dns-retry-for-feed-or-http-errors'
-print -- '19 offline installer checks passed; no app was launched or user history changed.'
+print -- '24 offline installer checks passed; placeholder parent processes do not collect data or open windows.'
