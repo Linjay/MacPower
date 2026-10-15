@@ -286,3 +286,36 @@
 - **实际替换、重启与保留**：旧进程已退出，新进程从同一验证安装路径运行；原生软件更新页实际显示当前版本 0.1.7。二进制 SHA-256 为 `0019950d8ec8990eaa1bdd821e0da9a72321bb08573cd7594f163ccb9bd7677e`，与公开 v0.1.7 完全一致；安装包严格签名检查通过。历史从 3,788 条正常增长到 3,794 条，排除最近两个仍可能更新的时间桶后，逐条核对 3,786 条均保留；监测偏好、自动检查及预览渠道选择均未改变。证据为 `native-click-update.json` 与 `native-click-install.log`。
 - **构建及分发边界**：最终源码版本 0.1.8 / 构建号 9，包内包含 `InstallUpdate.sh`，与源码一致并纳入签名。`zsh scripts/package-release.sh` 调用 `zsh scripts/build-app.sh` 构建并打包，日志为 `release-build.log`。上述实际在线更新采用版本元数据较低的验证构建，不能说历史发布的原版 0.1.6 已具备该功能；异常恢复主要由夹具覆盖，不表示新增所有网络、旧版系统、其他硬件、长期性能、Developer ID 签名或 Apple 公证验收。
 - **公开发布与本机交付**：v0.1.8 为公开预览版，源码及标签对应 `15d2179282c81b6c00b61a2f5e100c79ef162635`。ZIP、SHA256SUMS 和 verification.json 从 GitHub 独立下载后与本地逐字节一致；解压后的应用通过严格签名、版本、安装脚本内容及源码提交核对。发布 ZIP SHA-256 为 `c571ae87095256c810245ac9b727a73069e611b8f2260346bb2112de0f6c0647`，二进制 SHA-256 为 `003055943714c6586ca2984a29625caafa29ea994a21767e05c3d0cbf77f3d39`。通过安装命令将本机 `/Applications/MacPower.app` 从 0.1.7 替换为 0.1.8，实际打开软件更新页确认当前版本 0.1.8、自动安装重启说明、自动检查关闭及预览版开启；点击检查成功显示“当前没有更新版本”“发布版本：0.1.8 · 预览版”。此补记为发布后的文档提交，不改变发布标签或应用代码。证据为 `final-install-v0.1.8.log`、`final-delivery.json` 及 `downloaded-v0.1.8/`，位于同一证据目录。
+
+## 本机更新至 v0.1.4（2026-10-09，Asia/Shanghai）
+
+- 源码由 `4aca0ba` 快进到本轮 fetch 后的 `origin/main`：`43eb940`，安装版本为 0.1.4 / 构建号 5。
+- 自动验证：`zsh scripts/test.sh` 的 46 项测试通过；`zsh scripts/build-app.sh` 成功。日志为 `build/evidence/install-20261009-tests.log` 与 `install-20261009-build.log`，仅计作自动覆盖。
+- 安装至 `/Applications/MacPower.app`；严格签名完整性检查通过，安装二进制与构建输出逐字节一致，SHA-256 为 `ca52221cec0b14961455dae46c9314c0ebea120af9dca2eb5af8ea56488f6951`。旧版备份为 `build/backups/MacPower-before-update-20261009-145752.app`。未修改本地历史或偏好。
+- 启动验证：首次通过 open 启动后未观察到持续进程；再次启动及直接执行安装包后，观察到安装路径进程持续存在至少 38 秒。原生 UI 工具两次连接超时，应用清单未列出 MacPower，因此本轮未完成界面与正常冷启动验收，进程存在不能替代 UI 验证。
+- 本轮未验证新增硬件状态、功率校准、长期运行、Developer ID 签名或 Apple 公证；未修改系统安全设置。
+
+## 电池电量趋势（2026-10-15，Asia/Shanghai）
+
+- **基线与设计**：本机 `main` 从 `43eb940` 快进到 fetch 后的 `origin/main`：`9041d7d`（v0.1.8 基线）。原有未提交的 2026-10-09 本机验收记录完整保留。先完成 [交互方案](battery-level-trend.md)，再实现原生电量/功率切换、三个时段、独立百分比纵轴、悬停/拖动读数、首末差值、CSV 新列与旧历史兼容。
+- **自动验证与构建**：最终源码执行 `zsh scripts/test.sh`，31 项更新测试与 37 项核心/能源模式/电量历史测试全部通过，共 68 项，其中新增 8 项电量历史测试覆盖末次实际读数、缺失/非法值、0% 与 100%、同分钟断点、暂停/重启、功率来源变化、旧历史兼容、CSV 与区间摘要。随后执行 `zsh scripts/build-app.sh` 成功，严格签名完整性检查通过，开发构建为 `build/MacPower.app`。日志为同一证据目录的 `tests.log` 与 `build.log`。电量摘要和曲线共用 15 秒显示快照缓存，没有提高采样频率。
+- **原生界面夹具**：从实际 `PowerViews.swift` 与 `BatteryLevelChart.swift` 提取视图，使用无生产历史写入、无硬件采样的夹具 Store，通过 AppKit 承载的 SwiftUI 渲染 8 个场景 × 2 种主题，共 16 张图片。场景包括空记录、单点、上升、下降中断、平稳、24 小时 1,440 条记录、无电池和关闭历史；检查了断线、单点、深浅色、摘要、跨天日期与关闭记录提示。证据位于 `build/evidence/battery-level/`，包括可重建的 `FixtureApp.swift`、图片与 `ui-verification.json`。图片是模拟数据，不计为真实充放电状态。
+- **实际 UI 操作（模拟数据）**：运行独立的“电量趋势 · 交互验证（示例数据）”原生窗口。切到 15 分钟后，记录由 40 条变为 16 条、摘要变为 68% → 61%；切换功率再切回电量仍保留 15 分钟。有效曲线位置显示 `11:21:00, 65%`，缺口位置清除读数；完整趋势可滚动到底部说明。此次使用测试 Store，不等同于安装后全应用入口、CSV 保存面板、通知或真实设备状态验收。
+- **本机数据读取**：当前源码的诊断程序返回 `hasBattery=true`、`percent=null`，因此不把本机认作已验证真实电量曲线，保持缺失而非 0%。新历史模型只读载入本机既有 8,841 条功率历史、0 条电量历史，没有改写原文件；摘要为 `live-read.json` 与 `legacy-read.json`。
+- **范围**：这是未发布的源码改动，版本元数据沿用 0.1.8 / 9。未替换 `/Applications/MacPower.app`，未修改本地偏好或生产历史。未新增真实睡眠唤醒、插拔/充放电矩阵、其他硬件、长期性能、完整 VoiceOver、功率校准或签名公证验收。
+
+### 本机安装与启动（2026-10-15 20:13，Asia/Shanghai）
+
+- 用户随后要求安装本机并启动。本节覆盖上一节“未安装”的阶段状态：从原有 0.1.4 / 5 更新为包含电量曲线的未发布开发版，版本元数据为 0.1.8 / 9。沿用上一节同一源码的 68 项通过测试与最终原生构建；安装包和备份包均通过严格签名完整性检查，安装二进制与构建输出 SHA-256 一致。
+- 原应用备份为 `build/backups/battery-level-20261015-201215/MacPower.app`。正常退出旧版后，历史与偏好备份至 `~/Library/Application Support/MacPower/Backups/before-battery-level-20261015-201215/`；替换期间历史文件逐字节不变，启动后核对原有 8,893 条记录的 ID 全部保留，监测、外观及更新选项保留。更新检查时间正常更新，旧 `updates.retryAfter` 限流键迁移到 `updates.apiRetryAfter`，因此整个偏好域并非逐字节不变。新增的历史仍由正常采样保存，不把运行中的文件变化视为数据丢失。
+- 从 `/Applications/MacPower.app` 启动，确认安装路径进程与原生 UI；实际打开“电源概览 → 查看电量趋势”，页面出现电量/功率切换、三个时段及“还没有电量记录”状态，保持窗口打开供用户查看。结束了上一轮独立模拟预览进程，避免与实际应用混淆。
+- 独立读取系统电池状态：`pmset -g batt` 未报告电量百分比，AppleSmartBattery 的 `BatteryInstalled=false`、CurrentCapacity=0、MaxCapacity=0。原生实时页电量为 `—`，趋势为 0 条有效电量记录；这些容量字段不能作为 0% 电量绘图。当前 `PowerSnapshot.hasBattery` 仍依据电池服务存在性判定，故界面显示“还没有电量记录”，没有识别出明确的无电池状态；此既有识别限制尚未在本次安装任务中修改。
+- 证据为 `build/evidence/battery-level/install.json`、`installed-battery-read.json`。本轮验证安装、启动、数据保留与真实空状态，没有验证真实充放电电量曲线、其他设备、长期性能或公证。
+
+## v0.1.9 发布构建（2026-10-15，Asia/Shanghai）
+
+- 版本更新为 0.1.9 / 构建号 10，包含电量历史、独立百分比曲线、悬停/拖动读数、三个时段、首末变化与 CSV 新列，沿用预览版分发。
+- **自动验证**：最终发布源码执行 `zsh scripts/test.sh`，31 项更新测试与 37 项核心/能源模式/电量历史测试全部通过，共 68 项；`zsh scripts/package-release.sh` 调用 `zsh scripts/build-app.sh` 成功，严格签名完整性检查通过。日志为 `build/evidence/release-v0.1.9/tests.log` 和 `build.log`。
+- **安装包验证**：ZIP 共 10 个条目，仅含签名应用包的 5 个文件及目录。CRC、应用包文件逐字节一致、执行权限、版本 0.1.9 / 10、arm64 架构、最低 macOS 14 与安装脚本内容均检查通过；从 ZIP 解压后再次通过严格签名检查。未包含 AppleDouble、个人历史、原始硬件诊断或个人构建路径。验证脚本与结果为同一证据目录的 `validate-artifact.py` 和 `artifact-checks.json`。
+- ZIP SHA-256 为 `fa5b231c7a5828a811ba7bcb371cfe9ffde966805fcd3afbc3a8bf6c71347003`；二进制 SHA-256 为 `703f94eb1b3b5d320317d03d5e85510070eed50eac680d8b4ddc5f8557a37d78`。发行说明为 [v0.1.9](releases/v0.1.9.md)，发布附件的 `verification.json` 记录源码提交和验证边界。
+- **运行时边界**：上一节本机安装及真实空状态验证仍使用 0.1.8 / 9 元数据的同功能开发构建；16 张界面预览和曲线交互来自模拟数据。本节验证 0.1.9 发布构建与安装包，没有替换正在运行的本机应用。真实充放电曲线、其他设备、长期性能、Developer ID 签名和 Apple 公证仍未扩展验收。

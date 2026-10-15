@@ -67,7 +67,7 @@ struct SettingsPanel: View {
         VStack(alignment:.leading,spacing:0) {
             heading("数据记录",subtitle:"记录只保存在这台 Mac，不上传设备数据。")
             row("记录本地历史") { Toggle("记录本地历史",isOn:$store.preferences.recordHistory).labelsHidden().toggleStyle(.switch).controlSize(.small) }
-            row("保留功率历史") { Picker("保留功率历史",selection:$store.preferences.retentionDays) { Text("7 天").tag(7);Text("30 天").tag(30);Text("90 天").tag(90) }.labelsHidden().frame(width:110) }
+            row("保留电量与功率历史") { Picker("保留电量与功率历史",selection:$store.preferences.retentionDays) { Text("7 天").tag(7);Text("30 天").tag(30);Text("90 天").tag(90) }.labelsHidden().frame(width:110) }
             row("收起时降低采样频率") { Toggle("收起时降低采样频率",isOn:$store.preferences.energySaving).labelsHidden().toggleStyle(.switch).controlSize(.small) }
             Text("面板打开时每秒读取；收起后每 5 秒读取，省电时每 15 秒。睡眠暂停，唤醒重新采集。历史按分钟汇总，健康记录最多保留 90 天。").font(.system(size:11)).foregroundStyle(Palette.secondary).lineSpacing(5).padding(.vertical,20)
             Button { store.export(minutes:1440) } label: { Label("导出最近 24 小时 CSV",systemImage:"square.and.arrow.up").frame(maxWidth:.infinity) }.controlSize(.large)

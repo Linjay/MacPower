@@ -24,6 +24,7 @@ public struct HistoryPoint: Codable, Identifiable, Equatable, Sendable {
     public var input = MetricSummary()
     public var battery = MetricSummary()
     public var system = MetricSummary()
+    public var batteryLevel: BatteryLevelRecord?
     public var samples = 0
     public var coveredSeconds = 0.0
     public var chargedWh = 0.0
@@ -69,8 +70,9 @@ public struct HistoryRecorder: Sendable {
     public private(set) var archive: HistoryArchive
     private var previous: PowerSnapshot?
     private var segment = UUID()
+    private var levelSegment = UUID()
     public init(archive: HistoryArchive = HistoryArchive()) { self.archive = archive }
-    public mutating func breakContinuity() { previous = nil; segment = UUID() }
+    public mutating func breakContinuity() { previous = nil; segment = UUID(); levelSegment = UUID() }
     public mutating func clear() { archive = HistoryArchive(); breakContinuity() }
     public mutating func prune(now: Date, days: Int) { archive.prune(now: now, days: days) }
     public mutating func addHealth(_ report: HealthReport) { archive.addHealth(report) }
@@ -84,12 +86,23 @@ public struct HistoryRecorder: Sendable {
             signature(old.input) == signature(sample.input) && signature(old.battery) == signature(sample.battery) && signature(old.system) == signature(sample.system)
         } ?? false
         if !continuous { segment = UUID() }
+        let percent = sample.percent.flatMap { (0...100).contains($0) ? $0 : nil }
+        let levelContinuous = previous.map {
+            gap <= max(1, expectedInterval) * 3 && $0.percent.map { (0...100).contains($0) } == true && percent != nil
+        } ?? false
+        if !levelContinuous { levelSegment = UUID() }
+        let level = percent.map { BatteryLevelRecord(percent: $0, sampledAt: sample.timestamp, segment: levelSegment) }
         let minute = Date(timeIntervalSince1970: floor(sample.timestamp.timeIntervalSince1970 / 60) * 60)
-        if archive.points.last?.date != minute || archive.points.last?.segment != segment {
+        if archive.points.last?.date != minute || archive.points.last?.segment != segment ||
+            archive.points.last?.batteryLevel?.segment != level?.segment {
             archive.points.append(HistoryPoint(date: minute, lastSampleAt: sample.timestamp, segment: segment, state: sample.state))
         }
         var point = archive.points.removeLast()
         point.input.add(sample.input); point.battery.add(sample.battery); point.system.add(sample.system)
+        if var level {
+            level.coveredSeconds = (point.batteryLevel?.coveredSeconds ?? 0) + (levelContinuous ? gap : 0)
+            point.batteryLevel = level
+        }
         point.lastSampleAt = sample.timestamp; point.samples += 1
         if continuous, let old = previous {
             if let a = old.battery.value, let b = sample.battery.value {
@@ -119,12 +132,14 @@ public enum HistoryExport {
         let iso = ISO8601DateFormatter()
         func value(_ v: Double?) -> String { v.map { String(format: "%.4f", locale: Locale(identifier: "en_US_POSIX"), $0) } ?? "" }
         func quote(_ text: String) -> String { "\"" + text.replacingOccurrences(of: "\"", with: "\"\"") + "\"" }
-        let header = "minute_utc,last_sample_utc,state,input_w_mean,input_w_min,input_w_max,battery_w_mean,battery_w_min,battery_w_max,system_w_mean,system_w_min,system_w_max,battery_covered_seconds,charged_wh,discharged_wh,input_source,battery_source,system_source,input_quality,battery_quality,system_quality"
+        let header = "minute_utc,last_sample_utc,state,input_w_mean,input_w_min,input_w_max,battery_w_mean,battery_w_min,battery_w_max,system_w_mean,system_w_min,system_w_max,battery_covered_seconds,charged_wh,discharged_wh,input_source,battery_source,system_source,input_quality,battery_quality,system_quality,battery_percent,battery_percent_sample_utc,battery_percent_segment,battery_percent_covered_seconds"
         let rows = points.map { p in
             [iso.string(from:p.date), iso.string(from:p.lastSampleAt), p.state.rawValue,
              value(p.input.mean), value(p.input.minimum), value(p.input.maximum), value(p.battery.mean), value(p.battery.minimum), value(p.battery.maximum),
              value(p.system.mean), value(p.system.minimum), value(p.system.maximum), value(p.coveredSeconds), value(p.chargedWh), value(p.dischargedWh),
-             quote(p.input.source), quote(p.battery.source), quote(p.system.source),p.input.quality.rawValue,p.battery.quality.rawValue,p.system.quality.rawValue].joined(separator:",")
+             quote(p.input.source), quote(p.battery.source), quote(p.system.source),p.input.quality.rawValue,p.battery.quality.rawValue,p.system.quality.rawValue,
+             p.batteryLevel.map { String($0.percent) } ?? "", p.batteryLevel.map { iso.string(from:$0.sampledAt) } ?? "",
+             p.batteryLevel?.segment.uuidString ?? "", value(p.batteryLevel?.coveredSeconds)].joined(separator:",")
         }
         return "\u{FEFF}" + ([header] + rows).joined(separator:"\n") + "\n"
     }

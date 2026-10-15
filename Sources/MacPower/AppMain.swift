@@ -66,7 +66,7 @@ import PowerCore
         store.onUpdate = { [weak self] in self?.updateAppearance(); self?.updateStatus() }
         store.showSettings = { [weak self] in self?.openSettings() }
         store.showOverview = { [weak self] in self?.openOverview() }
-        store.showHistory = { [weak self] minutes, series in self?.openHistory(minutes:minutes,series:series) }
+        store.showHistory = { [weak self] minutes, series, kind in self?.openHistory(minutes:minutes,series:series,kind:kind) }
         store.showMetric = { [weak self] key in self?.openMetric(key) }
         store.quit = { NSApp.terminate(nil) }
         store.updater.onRestartRequested = {
@@ -203,10 +203,12 @@ import PowerCore
         }
         activate(overviewWindow!)
     }
-    private func openHistory(minutes: Int, series: Set<ChartSeries>) {
+    private func openHistory(minutes: Int, series: Set<ChartSeries>, kind: TrendKind) {
         popover.performClose(nil)
         historyWindow?.close()
-        historyWindow = makeWindow(title:"MacPower 功率趋势",size:NSSize(width:800,height:650),root:HistoryPanel(store:store,expanded:true,minutes:minutes,series:series).padding(26).background(Palette.surface))
+        historyWindow = makeWindow(title:"MacPower 电量与功率趋势",size:NSSize(width:800,height:650),root:ScrollView {
+            HistoryPanel(store:store,expanded:true,minutes:minutes,series:series,kind:kind).padding(26)
+        }.background(Palette.surface))
         activate(historyWindow!)
     }
     private func openMetric(_ key: String) {

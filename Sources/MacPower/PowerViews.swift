@@ -35,6 +35,7 @@ extension EnergyMode {
 struct PowerPanel: View {
     @ObservedObject var store: AppStore
     @ViewState<PanelPage> private var page: PanelPage = .live
+    @ViewState<TrendKind> private var trendKind: TrendKind = .level
     var body: some View {
         VStack(spacing:0) {
             HStack(spacing:10) {
@@ -65,8 +66,8 @@ struct PowerPanel: View {
                         }.padding(10).background(Palette.blue.opacity(0.1),in:RoundedRectangle(cornerRadius:6)).padding(.top,10)
                     }
                     switch page {
-                    case .live: LivePanel(store:store,onTrends:{page = .trends},onHealth:{page = .health})
-                    case .trends: HistoryPanel(store:store)
+                    case .live: LivePanel(store:store,onTrends:{trendKind = .power; page = .trends},onLevelTrends:{trendKind = .level; page = .trends},onHealth:{page = .health})
+                    case .trends: HistoryPanel(store:store,kind:trendKind)
                     case .health: HealthPanel(store:store)
                     }
                 }.frame(maxWidth:.infinity)
@@ -79,6 +80,7 @@ struct PowerPanel: View {
 struct LivePanel: View {
     @ObservedObject var store: AppStore
     var onTrends: () -> Void
+    var onLevelTrends: () -> Void
     var onHealth: () -> Void
     var body: some View {
         VStack(spacing:0) {
@@ -117,7 +119,11 @@ struct LivePanel: View {
                 }.padding(.top,17).padding(.bottom,11)
                 ProgressView(value:Double(store.snapshot.percent ?? 0),total:100).progressViewStyle(BatteryProgressStyle())
                     .accessibilityLabel("电池电量").accessibilityValue(store.snapshot.percent.map{"\($0)%"} ?? "不可用")
-                Text(timeLabel).font(.system(size:11)).foregroundStyle(Palette.secondary).frame(maxWidth:.infinity,alignment:.leading).padding(.top,8).padding(.bottom,17)
+                HStack {
+                    Text(timeLabel).foregroundStyle(Palette.secondary)
+                    Spacer(minLength:8)
+                    Button("查看电量趋势",action:onLevelTrends).buttonStyle(.plain).foregroundStyle(Palette.blue)
+                }.font(.system(size:11)).padding(.top,8).padding(.bottom,17)
                 Divider().overlay(Palette.line)
                 Button(action:onTrends) {
                     VStack(alignment:.leading,spacing:8) {
@@ -314,24 +320,32 @@ struct BatteryProgressStyle: ProgressViewStyle {
     }
 }
 
+enum TrendKind: String, CaseIterable { case level = "电量", power = "功率" }
+
 struct HistoryPanel: View {
     @ObservedObject var store: AppStore
     var expanded = false
     @ViewState<Int> private var minutes = 15
     @ViewState<Set<ChartSeries>> private var series: Set<ChartSeries> = [.input,.battery]
-    init(store: AppStore, expanded: Bool = false, minutes: Int = 15, series: Set<ChartSeries> = [.input,.battery]) {
+    @ViewState<TrendKind> private var kind: TrendKind = .level
+    init(store: AppStore, expanded: Bool = false, minutes: Int = 15, series: Set<ChartSeries> = [.input,.battery], kind: TrendKind = .level) {
         self.store = store; self.expanded = expanded
         self._minutes = ViewState(initialValue:minutes)
         self._series = ViewState(initialValue:series)
+        self._kind = ViewState(initialValue:kind)
     }
     var body: some View {
         VStack(alignment:.leading,spacing:17) {
             HStack {
-                VStack(alignment:.leading,spacing:5) { Text("功率趋势").font(.system(size:19,weight:.semibold));Text("每一分钟，来自真实记录。").font(.system(size:11)).foregroundStyle(Palette.secondary) }
+                VStack(alignment:.leading,spacing:5) { Text(kind == .level ? "电量趋势" : "功率趋势").font(.system(size:19,weight:.semibold));Text("每一分钟，来自真实记录。").font(.system(size:11)).foregroundStyle(Palette.secondary) }
                 Spacer()
                 Button { store.export(minutes:minutes) } label: { Image(systemName:"square.and.arrow.up").font(.system(size:18)) }.buttonStyle(.plain).help("导出当前时段 CSV").accessibilityLabel("导出当前时段 CSV").disabled(points.isEmpty)
             }.padding(.top,18)
+            Picker("趋势指标",selection:$kind) { ForEach(TrendKind.allCases,id:\.self) { Text($0.rawValue).tag($0) } }.pickerStyle(.segmented).labelsHidden()
             Picker("趋势时段",selection:$minutes) { Text("15 分钟").tag(15);Text("1 小时").tag(60);Text("24 小时").tag(1440) }.pickerStyle(.segmented).labelsHidden()
+            if kind == .level {
+                levelContent
+            } else {
             HStack { Text("功率 / W");Spacer();Text("分钟均值") }.font(.system(size:10)).foregroundStyle(Palette.secondary)
             PowerChart(points:points,minutes:minutes,series:series,endDate:store.chartTimestamp).equatable().frame(height:expanded ? 270 : 210)
             HStack(spacing:15) {
@@ -348,11 +362,54 @@ struct HistoryPanel: View {
                 Spacer();summary("电池放出",value:String(format:"%.2f Wh",points.reduce(0){$0+$1.dischargedWh}))
             }
             Text("记录覆盖 \(coverage)% · \(points.count) 条分钟记录\n中断与来源变化处断线，缺口不计入电量。").font(.system(size:11)).foregroundStyle(Palette.secondary).lineSpacing(5)
-            if !store.preferences.recordHistory { Label("历史记录已关闭",systemImage:"pause.circle").font(.system(size:11)).foregroundStyle(Palette.warning) }
-            if !expanded { Button { store.showHistory?(minutes,series) } label: { Label("打开完整趋势",systemImage:"arrow.up.right") }.buttonStyle(.plain).foregroundStyle(Palette.blue).font(.system(size:12)).padding(.bottom,10) }
+            }
+            if !store.preferences.recordHistory {
+                HStack {
+                    Label("历史记录已关闭",systemImage:"pause.circle").foregroundStyle(Palette.warning)
+                    Spacer()
+                    Button("前往开启") { store.settingsPage = .data; store.showSettings?() }.buttonStyle(.plain).foregroundStyle(Palette.blue)
+                }.font(.system(size:11))
+            }
+            if !expanded { Button { store.showHistory?(minutes,series,kind) } label: { Label("打开完整趋势",systemImage:"arrow.up.right") }.buttonStyle(.plain).foregroundStyle(Palette.blue).font(.system(size:12)).padding(.bottom,10) }
         }.foregroundStyle(Palette.text)
     }
     private var points: [HistoryPoint] { store.selectedChartPoints(minutes:minutes) }
+    private var levelContent: some View {
+        let trend = store.selectedBatteryLevelTrend(minutes:minutes)
+        return VStack(alignment:.leading,spacing:17) {
+            HStack { Text("剩余电量 / %");Spacer();Text("每分钟末次读数") }.font(.system(size:10)).foregroundStyle(Palette.secondary)
+            BatteryLevelChart(trend:trend,minutes:minutes,endDate:store.chartTimestamp,hasBattery:store.snapshot.hasBattery)
+                .equatable().frame(height:expanded ? 270 : 210)
+            Divider().overlay(Palette.line)
+            HStack {
+                levelSummary("首条记录",value:trend.first.map { "\($0.percent)%" } ?? "—")
+                Spacer()
+                levelSummary("末条记录",value:trend.last.map { "\($0.percent)%" } ?? "—")
+                Spacer()
+                levelSummary("变化",value:trend.change.map { $0 > 0 ? "+\($0)" : $0 < 0 ? "−\(abs($0))" : "0" } ?? "—",unit:trend.change == nil ? "" : "百分点")
+            }
+            VStack(alignment:.leading,spacing:5) {
+                Text("电量记录覆盖 \(trend.coverage)% · \(trend.records.count) 条有效记录")
+                if let first = trend.first, let last = trend.last {
+                    Text("\(recordDate(first.sampledAt)) – \(recordDate(last.sampledAt))")
+                }
+                Text("系统电源信息 · 每分钟末次读数")
+                Text("中断与缺失处断线；变化仅为首末读数之差。")
+            }.font(.system(size:11)).foregroundStyle(Palette.secondary)
+        }
+    }
+    private func recordDate(_ date:Date) -> String {
+        minutes == 1440 ? date.formatted(.dateTime.month(.twoDigits).day(.twoDigits).hour().minute()) : date.formatted(date:.omitted,time:.shortened)
+    }
+    private func levelSummary(_ title:String,value:String,unit:String = "") -> some View {
+        VStack(alignment:.leading,spacing:8) {
+            Text(title).font(.system(size:11)).foregroundStyle(Palette.secondary)
+            HStack(alignment:.firstTextBaseline,spacing:3) {
+                Text(value).font(.system(size:23,weight:.semibold)).monospacedDigit()
+                if !unit.isEmpty { Text(unit).font(.system(size:10)).foregroundStyle(Palette.secondary) }
+            }
+        }.accessibilityElement(children:.combine)
+    }
     private var coverage: Int { min(100,Int(points.reduce(0){$0+$1.coveredSeconds}/Double(minutes*60)*100)) }
     private func summary(_ title:String,value:String) -> some View { VStack(alignment:.leading,spacing:8) { Text(title).font(.system(size:11)).foregroundStyle(Palette.secondary);Text(value).font(.system(size:23,weight:.semibold)).monospacedDigit() } }
 }

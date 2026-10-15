@@ -34,7 +34,7 @@ import UpdateCore
     var onUpdate: (() -> Void)?
     var showSettings: (() -> Void)?
     var showOverview: (() -> Void)?
-    var showHistory: ((Int, Set<ChartSeries>) -> Void)?
+    var showHistory: ((Int, Set<ChartSeries>, TrendKind) -> Void)?
     var showMetric: ((String) -> Void)?
     var quit: (() -> Void)?
     private var recorder: HistoryRecorder
@@ -49,6 +49,7 @@ import UpdateCore
     private var generation = 0
     private var panelVisible = false
     private var chartSelections: [Int: [HistoryPoint]] = [:]
+    private var levelChartSelections: [Int: BatteryLevelTrend] = [:]
     private(set) var chartTimestamp = Date()
     private var lastChartRefresh = Date.distantPast
     private var lastSave = Date.distantPast
@@ -196,7 +197,7 @@ import UpdateCore
     }
     func clearHistory() {
         let alert = NSAlert(); alert.messageText = "清除全部本地历史？"
-        alert.informativeText = "将删除功率记录和健康趋势，不会影响电池、外观设置或已导出的文件。此操作不可撤销。"
+        alert.informativeText = "将删除电量、功率记录和健康趋势，不会影响电池、外观设置或已导出的文件。此操作不可撤销。"
         alert.addButton(withTitle:"取消"); alert.addButton(withTitle:"清除历史")
         guard alert.runModal() == .alertSecondButtonReturn else { return }
         // If an unreadable file exists, preserve it as a recoverable backup before starting a new archive.
@@ -217,10 +218,16 @@ import UpdateCore
             let cutoff = now.addingTimeInterval(-Double(minutes) * 60)
             chartSelections[minutes] = recent.filter { $0.lastSampleAt >= cutoff }
         }
+        for minutes in [15, 60, 1440] {
+            levelChartSelections[minutes] = BatteryLevelTrend(points:chartSelections[minutes] ?? [],start:now.addingTimeInterval(-Double(minutes)*60),end:now)
+        }
         chartTimestamp = now; lastChartRefresh = now; chartRevision += 1
     }
     func selectedChartPoints(minutes: Int) -> [HistoryPoint] {
         chartSelections[minutes] ?? []
+    }
+    func selectedBatteryLevelTrend(minutes: Int) -> BatteryLevelTrend {
+        levelChartSelections[minutes] ?? BatteryLevelTrend(points:[],start:chartTimestamp,end:chartTimestamp)
     }
     func selectedPoints(minutes: Int) -> [HistoryPoint] {
         let cutoff = Date().addingTimeInterval(-Double(minutes)*60)
@@ -231,7 +238,7 @@ import UpdateCore
         guard !selected.isEmpty else { message = "当前时段没有可导出的记录"; return }
         let panel = NSSavePanel(); panel.allowedContentTypes = [.commaSeparatedText]
         panel.nameFieldStringValue = "MacPower-\(Date().formatted(.iso8601.year().month().day()))-\(minutes)min.csv"
-        panel.title = "导出功率记录"; panel.prompt = "导出"
+        panel.title = "导出电量与功率记录"; panel.prompt = "导出"
         guard panel.runModal() == .OK, let url = panel.url else { return }
         do { try HistoryExport.csv(selected).write(to:url,atomically:true,encoding:.utf8); message = "已导出 \(selected.count) 条记录" }
         catch { message = "导出失败：\(error.localizedDescription)" }
