@@ -38,6 +38,53 @@ public struct HistoryArchive: Codable, Sendable {
     public var points: [HistoryPoint] = []
     public var health: [HealthReport] = []
     public init() {}
+    private enum CodingKeys: String, CodingKey { case version, points, health, batteryLevels }
+    private struct DraftLevel: Decodable {
+        var date: Date
+        var percent: Int
+        var state: PowerState
+        var segment: UUID
+        var coveredSeconds: Double
+    }
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy:CodingKeys.self)
+        version = try values.decode(Int.self,forKey:.version)
+        points = try values.decode([HistoryPoint].self,forKey:.points)
+        health = try values.decode([HealthReport].self,forKey:.health)
+        // A local development build stored real level readings separately. Convert them to
+        // the released v0.1.9 format without deriving percentages from power measurements.
+        if let levels = try values.decodeIfPresent([DraftLevel].self,forKey:.batteryLevels), !levels.isEmpty {
+            var minuteIndices: [Date:Int] = [:]
+            for index in points.indices { minuteIndices[points[index].date] = index }
+            for level in levels.sorted(by: { $0.date < $1.date }) where (0...100).contains(level.percent) {
+                let minute = Date(timeIntervalSince1970:floor(level.date.timeIntervalSince1970/60)*60)
+                var record = BatteryLevelRecord(percent:level.percent,sampledAt:level.date,segment:level.segment)
+                record.coveredSeconds = level.coveredSeconds
+                if let index = minuteIndices[minute] {
+                    if let existing = points[index].batteryLevel {
+                        if existing.sampledAt == record.sampledAt { continue }
+                        if existing.segment == record.segment {
+                            if existing.sampledAt < record.sampledAt { points[index].batteryLevel = record }
+                            continue
+                        }
+                    } else {
+                        points[index].batteryLevel = record
+                        continue
+                    }
+                }
+                var point = HistoryPoint(date:minute,lastSampleAt:level.date,segment:level.segment,state:level.state)
+                point.batteryLevel = record
+                points.append(point); minuteIndices[minute] = points.count-1
+            }
+            points.sort { $0.date == $1.date ? $0.lastSampleAt < $1.lastSampleAt : $0.date < $1.date }
+        }
+    }
+    public func encode(to encoder: Encoder) throws {
+        var values = encoder.container(keyedBy:CodingKeys.self)
+        try values.encode(version,forKey:.version)
+        try values.encode(points,forKey:.points)
+        try values.encode(health,forKey:.health)
+    }
     public static func load(from url: URL) throws -> Self {
         guard FileManager.default.fileExists(atPath: url.path) else { return Self() }
         let data = try Data(contentsOf: url)

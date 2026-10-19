@@ -110,20 +110,7 @@ struct LivePanel: View {
                 Text(store.isStale ? "最新读数暂不可用" : "\(store.snapshot.input.quality.label) · 点击功率查看来源")
                     .font(.system(size:11)).foregroundStyle(Palette.secondary).padding(.top,4).padding(.bottom,16)
                 Divider().overlay(Palette.line)
-                HStack(spacing:8) {
-                    Image(systemName:store.batterySymbol).font(.system(size:23)).foregroundStyle(Palette.secondary)
-                    Text("电量").font(.system(size:13,weight:.semibold))
-                    Text(store.snapshot.percent.map{"\($0)%"} ?? "—").font(.system(size:21,weight:.semibold)).monospacedDigit()
-                    Spacer()
-                    Text(chargeLabel).font(.system(size:12)).foregroundStyle(store.state == .supplement ? Palette.warning : Palette.teal)
-                }.padding(.top,17).padding(.bottom,11)
-                ProgressView(value:Double(store.snapshot.percent ?? 0),total:100).progressViewStyle(BatteryProgressStyle())
-                    .accessibilityLabel("电池电量").accessibilityValue(store.snapshot.percent.map{"\($0)%"} ?? "不可用")
-                HStack {
-                    Text(timeLabel).foregroundStyle(Palette.secondary)
-                    Spacer(minLength:8)
-                    Button("查看电量趋势",action:onLevelTrends).buttonStyle(.plain).foregroundStyle(Palette.blue)
-                }.font(.system(size:11)).padding(.top,8).padding(.bottom,17)
+                BatteryChargeSection(store:store,onOpenTrend:onLevelTrends)
                 Divider().overlay(Palette.line)
                 Button(action:onTrends) {
                     VStack(alignment:.leading,spacing:8) {
@@ -155,16 +142,72 @@ struct LivePanel: View {
         let percent = store.health?.maximumCapacity.map{"\($0)%"} ?? "最大容量未提供"
         return "\(percent) · \(store.health?.conditionLabel ?? "正在读取")"
     }
+
+}
+
+struct BatteryChargeSection: View {
+    @ObservedObject var store: AppStore
+    var onOpenTrend: () -> Void
+    private var isFull: Bool { store.state == .full && !store.isStale }
+    private var percentLabel: String { store.isStale ? "—" : store.snapshot.percent.map { "\($0)%" } ?? "—" }
+
+    var body: some View {
+        VStack(spacing:0) {
+            Button(action:onOpenTrend) {
+                HStack(spacing:8) {
+                    BatteryStateIcon(symbol:store.batterySymbol,isFull:false,size:23)
+                        .foregroundStyle(isFull ? Palette.teal : Palette.secondary)
+                    Text("电量").font(.system(size:13,weight:.semibold))
+                    Text(percentLabel).font(.system(size:21,weight:.semibold)).monospacedDigit()
+                    Spacer(minLength:4)
+                    if !isFull {
+                        Text(chargeLabel).font(.system(size:12)).foregroundStyle(store.state == .supplement ? Palette.warning : Palette.teal)
+                    }
+                    Image(systemName:"chevron.right").font(.system(size:11)).foregroundStyle(Palette.secondary)
+                }.contentShape(Rectangle()).padding(.top,17).padding(.bottom,11)
+            }.buttonStyle(.plain).help("查看电量趋势")
+                .accessibilityLabel("电量 \(percentLabel)，\(chargeLabel)，查看电量趋势")
+            if !store.isStale, let percent = store.snapshot.percent {
+                ProgressView(value:Double(percent),total:100).progressViewStyle(BatteryProgressStyle())
+                    .accessibilityLabel("电池电量").accessibilityValue("\(percent)%")
+            } else {
+                Capsule().fill(Palette.line).frame(height:6).accessibilityLabel("电池电量未提供")
+            }
+            Text(timeLabel).font(.system(size:11)).foregroundStyle(Palette.secondary)
+                .frame(maxWidth:.infinity,alignment:.leading).padding(.top,8).padding(.bottom,17)
+        }
+    }
     private var chargeLabel: String {
         switch store.state { case .charging: return "正在充电"; case .battery,.supplement: return "正在放电"; case .full: return "已充满"; case .idle: return "未充电"; default: return "正在更新" }
     }
     private var timeLabel: String {
         if store.isStale { return "等待新的有效读数" }
         if store.state == .idle { return "系统未提供未充电的原因" }
-        if store.state == .full { return "当前由外接电源供电" }
+        if isFull { return "当前由外接电源供电" }
         guard let minutes = store.snapshot.minutesRemaining else { return "剩余时间正在估算" }
         let time = minutes >= 60 ? "\(minutes/60) 小时 \(minutes%60) 分钟" : "\(minutes) 分钟"
         return "\(store.state == .charging ? "预计充满" : "预计可用")约 \(time) · 估算"
+    }
+}
+
+struct BatteryStateIcon: View {
+    var symbol: String
+    var isFull: Bool
+    var size: CGFloat
+
+    var body: some View {
+        Image(systemName:isFull ? "battery.100percent" : symbol)
+            .font(.system(size:size,weight:.light))
+            .overlay {
+                if isFull {
+                    Image(systemName:"checkmark")
+                        .font(.system(size:size * 0.36,weight:.bold))
+                        .offset(x:-size * 0.06)
+                        .blendMode(.destinationOut)
+                }
+            }
+            .compositingGroup()
+            .accessibilityHidden(true)
     }
 }
 
@@ -188,14 +231,14 @@ struct PowerFlowView: View {
                     if store.snapshot.adapterWatts != nil { Text("· 系统报告").foregroundStyle(Palette.blue); Image(systemName:"chevron.right").font(.system(size:9)) }
                 }.font(.system(size:11)).foregroundStyle(Palette.secondary)
             }.buttonStyle(.plain).padding(.top,9)
-            FlowBranches(charging:(store.snapshot.battery.value.map { $0 > 0.5 } ?? false),active:!store.isStale && store.snapshot.externalConnected == true)
+            FlowBranches(charging:store.state != .full && (store.snapshot.battery.value.map { $0 > 0.5 } ?? false),active:!store.isStale && store.snapshot.externalConnected == true)
                 .frame(height:store.snapshot.externalConnected == true ? 48 : 24)
                 .padding(.horizontal,15)
             HStack(alignment:.top,spacing:0) {
                 metric(label:"整机耗电",icon:"laptopcomputer",power:store.snapshot.system,color:Palette.text,key:"system")
                 BatteryFlowArrow(active:!store.isStale && (store.snapshot.battery.value.map { $0 < -0.5 } ?? false),supplement:store.state == .supplement)
                     .frame(width:PowerFlowLayout.columnGap,height:PowerFlowLayout.iconHeight)
-                metric(label:store.snapshot.batteryLabel,icon:store.batterySymbol,power:store.snapshot.battery,color:store.state == .supplement ? Palette.warning : Palette.teal,key:"battery")
+                metric(label:store.state == .full ? "电池净功率" : store.snapshot.batteryLabel,icon:store.batterySymbol,power:store.snapshot.battery,color:store.state == .supplement ? Palette.warning : Palette.teal,key:"battery")
             }.padding(.horizontal,15)
         }
     }
@@ -206,12 +249,25 @@ struct PowerFlowView: View {
     private func metric(label:String,icon:String,power:PowerMetric,color:Color,key:String) -> some View {
         Button { store.showMetric?(key) } label: {
             VStack(spacing:4) {
-                Image(systemName:icon).font(.system(size:33,weight:.light)).frame(height:PowerFlowLayout.iconHeight).foregroundStyle(key == "system" ? Palette.secondary : color)
+                Group {
+                    if key == "battery" {
+                        BatteryStateIcon(symbol:icon,isFull:store.state == .full && !store.isStale,size:33)
+                    } else {
+                        Image(systemName:icon).font(.system(size:33,weight:.light))
+                    }
+                }.frame(height:PowerFlowLayout.iconHeight).foregroundStyle(key == "system" ? Palette.secondary : color)
                 Text(label).font(.system(size:12)).foregroundStyle(Palette.secondary)
-                value(power,fontSize:27,signed:key == "battery").foregroundStyle(color)
-                Text(power.quality == .estimated ? "估算" : " ").font(.system(size:10)).foregroundStyle(Palette.secondary)
+                let fullBattery = key == "battery" && store.state == .full && !store.isStale
+                value(power,fontSize:27,signed:key == "battery").foregroundStyle(fullBattery ? Palette.text : color)
+                if fullBattery {
+                    Text(power.quality == .estimated ? "已充满 · 估算" : power.quality == .unavailable ? "已充满 · 未提供" : "已充满")
+                        .font(.system(size:11)).foregroundStyle(Palette.secondary)
+                } else {
+                    Text(power.quality == .estimated ? "估算" : " ").font(.system(size:10)).foregroundStyle(Palette.secondary)
+                }
             }.frame(maxWidth:.infinity)
-        }.buttonStyle(.plain).frame(maxWidth:.infinity).help("查看\(label)的来源和解释").accessibilityLabel("\(label) \(reading(power,signed:key == "battery")) 瓦，\(power.quality.label)")
+        }.buttonStyle(.plain).frame(maxWidth:.infinity).help("查看\(label)的来源和解释")
+            .accessibilityLabel("\(key == "battery" && store.state == .full && !store.isStale ? "电池已充满，电池净功率" : label) \(reading(power,signed:key == "battery")) 瓦，\(power.quality.label)")
     }
 }
 

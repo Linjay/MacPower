@@ -98,4 +98,38 @@ struct BatteryLevelHistoryTests {
         let single = BatteryLevelTrend(points:recorder.archive.points,start:epoch.addingTimeInterval(299),end:epoch.addingTimeInterval(300))
         #expect(single.change == nil); #expect(single.coverage == 0)
     }
+    @Test func draftLevelArchiveMigratesActualReadingsWithoutInventingPower() throws {
+        var recorder = HistoryRecorder(); recorder.record(sample(nil,at:0),expectedInterval:5)
+        var object = try #require(JSONSerialization.jsonObject(with:JSONEncoder().encode(recorder.archive)) as? [String:Any])
+        let segment = UUID()
+        object["batteryLevels"] = [0,5,60].enumerated().map { index,offset in
+            ["date":epoch.addingTimeInterval(Double(offset)).timeIntervalSinceReferenceDate,
+             "percent":[100,99,98][index],"state":"battery","segment":segment.uuidString,"coveredSeconds":Double(offset == 0 ? 0 : 5)] as [String:Any]
+        }
+        let migrated = try JSONDecoder().decode(HistoryArchive.self,from:JSONSerialization.data(withJSONObject:object))
+        #expect(migrated.points.count == 2)
+        #expect(migrated.points.first?.id == recorder.archive.points.first?.id)
+        #expect(migrated.points.compactMap(\.batteryLevel).map(\.percent) == [99,98])
+        #expect(migrated.points.last?.batteryLevel?.sampledAt == epoch.addingTimeInterval(60))
+        #expect(migrated.points.last?.input.mean == nil)
+        #expect(migrated.points.last?.battery.mean == nil)
+        #expect(migrated.points.last?.samples == 0)
+        let saved = try JSONEncoder().encode(migrated)
+        let reopened = try JSONDecoder().decode(HistoryArchive.self,from:saved)
+        #expect(reopened.points == migrated.points)
+        #expect((try JSONSerialization.jsonObject(with:saved) as? [String:Any])?["batteryLevels"] == nil)
+    }
+    @Test func draftMigrationPreservesGapsAndRejectsInvalidPercentages() throws {
+        let first = UUID(), second = UUID()
+        let levels: [[String:Any]] = [(0,50,first),(5,49,second),(10,101,second)].map { offset,percent,segment in
+            ["date":epoch.addingTimeInterval(Double(offset)).timeIntervalSinceReferenceDate,
+             "percent":percent,"state":"battery","segment":segment.uuidString,"coveredSeconds":0]
+        }
+        let object: [String:Any] = ["version":1,"points":[],"health":[],"batteryLevels":levels]
+        let migrated = try JSONDecoder().decode(HistoryArchive.self,from:JSONSerialization.data(withJSONObject:object))
+        let records = migrated.points.compactMap(\.batteryLevel)
+        #expect(records.map(\.percent) == [50,49])
+        #expect(records.map(\.segment) == [first,second])
+        #expect(records.allSatisfy { $0.coveredSeconds == 0 })
+    }
 }

@@ -17,7 +17,7 @@ enum MenuBarStyle {
         return resolved
     }
 
-    static func image(percent: Int?, isCharging: Bool, mode: EnergyMode, appearance: NSAppearance) -> NSImage? {
+    static func image(percent: Int?, isCharging: Bool, isFull: Bool = false, mode: EnergyMode, appearance: NSAppearance) -> NSImage? {
         let size = NSSize(width:18,height:10)
         let image = NSImage(size:size)
         let validPercent = percent.flatMap { (0...100).contains($0) ? $0 : nil }
@@ -33,7 +33,7 @@ enum MenuBarStyle {
             NSGraphicsContext.current = context
             context.cgContext.scaleBy(x:CGFloat(scale),y:CGFloat(scale))
             context.cgContext.clear(CGRect(origin:.zero,size:size))
-            drawBattery(percent:validPercent,isCharging:isCharging,ink:ink)
+            drawBattery(percent:validPercent,isCharging:isCharging,isFull:isFull,ink:ink)
             NSGraphicsContext.restoreGraphicsState()
             image.addRepresentation(bitmap)
         }
@@ -43,7 +43,7 @@ enum MenuBarStyle {
         return image
     }
 
-    private static func drawBattery(percent: Int?, isCharging: Bool, ink: NSColor) {
+    private static func drawBattery(percent: Int?, isCharging: Bool, isFull: Bool, ink: NSColor) {
         ink.setStroke(); ink.setFill()
         let outline = NSBezierPath(roundedRect:NSRect(x:0.5,y:0.5,width:15.5,height:9),xRadius:1.6,yRadius:1.6)
         outline.lineWidth = 1
@@ -64,7 +64,12 @@ enum MenuBarStyle {
                          xRadius:min(0.9,width/2),yRadius:0.9).fill()
         }
 
-        if isCharging {
+        if isFull {
+            // A transparent inset mark preserves the mode color and works on either menu-bar appearance.
+            let check = NSImage(systemSymbolName:"checkmark",accessibilityDescription:nil)?
+                .withSymbolConfiguration(.init(pointSize:7,weight:.bold))
+            check?.draw(in:NSRect(x:5.3,y:3.1,width:6,height:4),from:.zero,operation:.destinationOut,fraction:1)
+        } else if isCharging {
             let bolt = NSBezierPath()
             bolt.move(to:NSPoint(x:9,y:8.1))
             for point in [NSPoint(x:6.5,y:4.8), NSPoint(x:8.05,y:4.8), NSPoint(x:7.4,y:1.9),

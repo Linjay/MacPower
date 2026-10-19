@@ -28,6 +28,7 @@ import PowerCore
     private struct StatusIconKey: Equatable {
         var percent: Int?
         var charging: Bool
+        var full: Bool
         var mode: EnergyMode
         var appearance: NSAppearance.Name
     }
@@ -112,10 +113,11 @@ import PowerCore
         let appearance = button.effectiveAppearance
         let percent = store.isStale ? nil : store.snapshot.percent
         let icon = StatusIconKey(percent:percent,charging:!store.isStale && store.snapshot.isCharging == true,
+                                 full:!store.isStale && store.state == .full,
                                  mode:energyMode,appearance:appearance.name)
         let iconChanged = icon != lastIcon
         if iconChanged {
-            button.image = MenuBarStyle.image(percent:percent,isCharging:icon.charging,mode:energyMode,appearance:appearance)
+            button.image = MenuBarStyle.image(percent:percent,isCharging:icon.charging,isFull:icon.full,mode:energyMode,appearance:appearance)
             lastIcon = icon
         }
         let extra = store.preferences.showPercent && store.preferences.menuMetric != .percent ? store.snapshot.percent.map { " \($0)%" } ?? "" : ""
