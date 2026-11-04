@@ -102,6 +102,7 @@ public struct HealthReport: Codable, Equatable, Sendable {
         default: return condition ?? "系统未提供状况"
         }
     }
+    public var hasData: Bool { maximumCapacity != nil || cycleCount != nil || condition?.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty == false }
 }
 
 public enum AppearanceMode: String, CaseIterable, Codable, Sendable {

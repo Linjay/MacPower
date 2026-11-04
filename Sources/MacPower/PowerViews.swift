@@ -21,6 +21,10 @@ enum Palette {
 
 enum PanelPage: String, CaseIterable { case live = "实时", trends = "趋势", health = "健康" }
 
+enum PowerPanelLayout {
+    static let size = NSSize(width:320,height:620)
+}
+
 extension EnergyMode {
     var panelColor: Color {
         switch self {
@@ -38,22 +42,20 @@ struct PowerPanel: View {
     @ViewState<TrendKind> private var trendKind: TrendKind = .level
     var body: some View {
         VStack(spacing:0) {
-            HStack(spacing:10) {
-                Image(systemName:"bolt.fill").font(.system(size:20,weight:.bold)).foregroundStyle(.white)
-                    .frame(width:29,height:29).background(Palette.blue,in:RoundedRectangle(cornerRadius:7))
-                Text("MacPower").font(.system(size:19,weight:.bold))
+            HStack(spacing:8) {
+                Image(systemName:"bolt.fill").font(.system(size:16,weight:.bold)).foregroundStyle(.white)
+                    .frame(width:24,height:24).background(Palette.blue,in:RoundedRectangle(cornerRadius:6))
+                Text("MacPower").font(.system(size:16,weight:.bold))
                 Spacer()
-                Button { store.showOverview?() } label: { Image(systemName:"pin").font(.system(size:16)) }
-                    .buttonStyle(.plain).foregroundStyle(Palette.secondary).help("在窗口中打开").accessibilityLabel("在窗口中打开")
-                Button { store.showSettings?() } label: { Image(systemName:"gearshape.fill").font(.system(size:20)) }
+                Button { store.showSettings?() } label: { Image(systemName:"gearshape.fill").font(.system(size:16)).frame(width:24,height:24).contentShape(Rectangle()) }
                     .buttonStyle(.plain).foregroundStyle(Palette.secondary).help("打开设置").accessibilityLabel("打开设置")
-            }.padding(.bottom,10)
+            }.padding(.bottom,6)
             HStack(spacing:5) {
                 Circle().fill(store.isStale ? Palette.warning : Palette.teal).frame(width:5,height:5)
                 Text(store.isStale ? "等待有效数据" : "本机实时数据").font(.system(size:11))
                 Spacer()
                 Text(store.snapshot.timestamp,style:.time).font(.system(size:10)).monospacedDigit()
-            }.foregroundStyle(Palette.secondary).padding(.bottom,12)
+            }.foregroundStyle(Palette.secondary).padding(.bottom,8)
             Picker("电源信息页面",selection:$page) { ForEach(PanelPage.allCases,id:\.self) { Text($0.rawValue).tag($0) } }
                 .pickerStyle(.segmented).labelsHidden().padding(.bottom,6)
             ScrollView {
@@ -72,7 +74,7 @@ struct PowerPanel: View {
                     }
                 }.frame(maxWidth:.infinity)
             }.scrollIndicators(.automatic)
-        }.padding(20).frame(width:416).frame(maxHeight:.infinity)
+        }.padding(.horizontal,16).padding(.vertical,14).frame(width:PowerPanelLayout.size.width).frame(maxHeight:.infinity)
             .background(Palette.surface).foregroundStyle(Palette.text)
     }
 }
@@ -86,55 +88,60 @@ struct LivePanel: View {
         VStack(spacing:0) {
             HStack(spacing:6) {
                 if store.state == .supplement || store.isStale { Image(systemName:"exclamationmark.circle") }
-                Text(store.state.title).font(.system(size:15,weight:.semibold))
-                Spacer()
-            }.foregroundStyle(store.state == .supplement ? Palette.warning : Palette.text).padding(.top,19).padding(.bottom,15)
+                Text(store.state.title).font(.system(size:14,weight:.semibold))
+                Spacer(minLength:6)
+                if store.state.showsEnergyMode {
+                    HStack(spacing:4) {
+                        Image(systemName:store.energyMode.symbol)
+                        Text(store.energyMode.title)
+                    }.font(.system(size:11,weight:.medium)).foregroundStyle(store.energyMode.panelColor)
+                        .padding(.horizontal,7).padding(.vertical,4)
+                        .background(store.energyMode.panelColor.opacity(0.08),in:RoundedRectangle(cornerRadius:6))
+                        .fixedSize()
+                        .help("能源模式 · \(store.energyMode.title)\n\(store.energyModeSource) · 只读\n系统选择的能源策略，不代表即时性能。")
+                        .accessibilityElement(children:.ignore)
+                        .accessibilityLabel("能源模式 · \(store.energyMode.title)，\(store.energyModeSource)，只读")
+                }
+            }.foregroundStyle(store.state == .supplement ? Palette.warning : Palette.text).padding(.top,12).padding(.bottom,10)
             if !store.snapshot.hasBattery {
                 ContentUnavailableView("未检测到内置电池",systemImage:"battery.0percent",description:Text("当前版本面向 MacBook。若设备有电池，可重新读取。"))
                 Button("重新读取") { store.sample() }.padding(.bottom,20)
             } else {
-                if store.state.showsEnergyMode {
-                    HStack(spacing:7) {
-                        Image(systemName:store.energyMode.symbol)
-                        Text("能源模式 · \(store.energyMode.title)").fontWeight(.medium)
-                        Spacer()
-                        Text("系统设置").font(.system(size:10)).foregroundStyle(Palette.secondary)
-                    }.font(.system(size:12)).foregroundStyle(store.energyMode.panelColor)
-                        .padding(.horizontal,10).padding(.vertical,8)
-                        .background(store.energyMode.panelColor.opacity(0.08),in:RoundedRectangle(cornerRadius:7))
-                        .padding(.bottom,14)
-                        .help("\(store.energyModeSource) · 只读\n系统选择的能源策略，不代表即时性能。菜单栏：自动为蓝色、节能为绿色、高性能为橙色；未提供时保持默认颜色。")
-                        .accessibilityElement(children:.combine)
-                }
                 PowerFlowView(store:store)
                 Text(store.isStale ? "最新读数暂不可用" : "\(store.snapshot.input.quality.label) · 点击功率查看来源")
-                    .font(.system(size:11)).foregroundStyle(Palette.secondary).padding(.top,4).padding(.bottom,16)
+                    .font(.system(size:11)).foregroundStyle(Palette.secondary).padding(.top,6).padding(.bottom,12)
                 Divider().overlay(Palette.line)
                 BatteryChargeSection(store:store,onOpenTrend:onLevelTrends)
                 Divider().overlay(Palette.line)
                 Button(action:onTrends) {
-                    VStack(alignment:.leading,spacing:8) {
-                        Text("电池功率 · 最近 15 分钟").font(.system(size:12,weight:.medium)).foregroundStyle(Palette.secondary)
+                    VStack(alignment:.leading,spacing:6) {
+                        HStack {
+                            Text("电池功率 · 最近 15 分钟").font(.system(size:11,weight:.medium))
+                            Spacer()
+                            Image(systemName:"chevron.right").font(.system(size:10))
+                        }.foregroundStyle(Palette.secondary)
                         PowerChart(points:store.selectedChartPoints(minutes:15),minutes:15,series:[.battery],endDate:store.chartTimestamp,compact:true)
                             .equatable()
-                            .frame(height:70)
-                    }.padding(.vertical,17)
+                            .frame(height:54)
+                    }.contentShape(Rectangle()).padding(.vertical,12)
                 }.buttonStyle(.plain).accessibilityLabel("查看最近 15 分钟电池功率趋势")
                 Divider().overlay(Palette.line)
                 Button(action:onHealth) {
-                    HStack(spacing:13) {
-                        Image(systemName:"heart").font(.system(size:25)).foregroundStyle(Palette.secondary)
-                        VStack(alignment:.leading,spacing:4) {
-                            Text("电池健康").font(.system(size:13,weight:.semibold))
-                            Text(healthSummary).font(.system(size:12)).foregroundStyle(Palette.secondary)
+                    HStack(spacing:10) {
+                        Image(systemName:"heart").font(.system(size:21)).foregroundStyle(Palette.secondary)
+                        VStack(alignment:.leading,spacing:3) {
+                            HStack {
+                                Text("电池健康").font(.system(size:12,weight:.semibold))
+                                Spacer(minLength:4)
+                                Text(store.snapshot.cycleCount.map{"\($0) 次循环"} ?? "循环次数未提供")
+                                    .font(.system(size:10)).foregroundStyle(Palette.secondary)
+                            }
+                            Text(healthSummary).font(.system(size:11)).foregroundStyle(Palette.secondary)
+                                .fixedSize(horizontal:false,vertical:true)
                         }
-                        Spacer(); Image(systemName:"chevron.right").font(.system(size:12)).foregroundStyle(Palette.secondary)
-                    }.padding(.vertical,17)
+                        Image(systemName:"chevron.right").font(.system(size:11)).foregroundStyle(Palette.secondary)
+                    }.contentShape(Rectangle()).padding(.vertical,12)
                 }.buttonStyle(.plain)
-                HStack {
-                    Text(store.snapshot.cycleCount.map{"\($0) 次循环"} ?? "循环次数未提供")
-                    Spacer(); Button(action:onTrends) { Label("查看趋势",systemImage:"arrow.up.right") }.buttonStyle(.plain).foregroundStyle(Palette.blue)
-                }.font(.system(size:11)).foregroundStyle(Palette.secondary).padding(.bottom,3)
             }
         }
     }
@@ -155,16 +162,16 @@ struct BatteryChargeSection: View {
         VStack(spacing:0) {
             Button(action:onOpenTrend) {
                 HStack(spacing:8) {
-                    BatteryStateIcon(symbol:store.batterySymbol,isFull:false,size:23)
+                    BatteryStateIcon(symbol:store.batterySymbol,isFull:false,size:20)
                         .foregroundStyle(isFull ? Palette.teal : Palette.secondary)
                     Text("电量").font(.system(size:13,weight:.semibold))
-                    Text(percentLabel).font(.system(size:21,weight:.semibold)).monospacedDigit()
+                    Text(percentLabel).font(.system(size:20,weight:.semibold)).monospacedDigit()
                     Spacer(minLength:4)
                     if !isFull {
                         Text(chargeLabel).font(.system(size:12)).foregroundStyle(store.state == .supplement ? Palette.warning : Palette.teal)
                     }
                     Image(systemName:"chevron.right").font(.system(size:11)).foregroundStyle(Palette.secondary)
-                }.contentShape(Rectangle()).padding(.top,17).padding(.bottom,11)
+                }.contentShape(Rectangle()).padding(.top,12).padding(.bottom,8)
             }.buttonStyle(.plain).help("查看电量趋势")
                 .accessibilityLabel("电量 \(percentLabel)，\(chargeLabel)，查看电量趋势")
             if !store.isStale, let percent = store.snapshot.percent {
@@ -174,7 +181,7 @@ struct BatteryChargeSection: View {
                 Capsule().fill(Palette.line).frame(height:6).accessibilityLabel("电池电量未提供")
             }
             Text(timeLabel).font(.system(size:11)).foregroundStyle(Palette.secondary)
-                .frame(maxWidth:.infinity,alignment:.leading).padding(.top,8).padding(.bottom,17)
+                .frame(maxWidth:.infinity,alignment:.leading).padding(.top,6).padding(.bottom,12)
         }
     }
     private var chargeLabel: String {
@@ -216,12 +223,12 @@ struct PowerFlowView: View {
     var body: some View {
         VStack(spacing:0) {
             Button { store.showMetric?("input") } label: {
-                HStack(spacing:11) {
-                    Image(systemName:"powerplug.fill").font(.system(size:38)).rotationEffect(.degrees(-90))
+                HStack(spacing:9) {
+                    Image(systemName:"powerplug.fill").font(.system(size:30)).rotationEffect(.degrees(-90))
                     VStack(alignment:.leading,spacing:1) {
                         Text("电源输入").font(.system(size:12)).foregroundStyle(Palette.secondary)
-                        if store.snapshot.externalConnected == false { Text("未接入").font(.system(size:25,weight:.semibold)) }
-                        else { value(store.snapshot.input,fontSize:32) }
+                        if store.snapshot.externalConnected == false { Text("未接入").font(.system(size:23,weight:.semibold)) }
+                        else { value(store.snapshot.input,fontSize:28) }
                     }
                 }.foregroundStyle(Palette.blue)
             }.buttonStyle(.plain).help("查看输入功率来源").accessibilityLabel("电源输入 \(reading(store.snapshot.input)) 瓦，查看说明")
@@ -230,16 +237,16 @@ struct PowerFlowView: View {
                     Text(store.snapshot.adapterWatts.map{String(format:"供电能力 %.0f W",$0)} ?? (store.snapshot.externalConnected == false ? "当前由电池供电" : "供电能力未提供"))
                     if store.snapshot.adapterWatts != nil { Text("· 系统报告").foregroundStyle(Palette.blue); Image(systemName:"chevron.right").font(.system(size:9)) }
                 }.font(.system(size:11)).foregroundStyle(Palette.secondary)
-            }.buttonStyle(.plain).padding(.top,9)
+            }.buttonStyle(.plain).padding(.top,5)
             FlowBranches(charging:store.state != .full && (store.snapshot.battery.value.map { $0 > 0.5 } ?? false),active:!store.isStale && store.snapshot.externalConnected == true)
-                .frame(height:store.snapshot.externalConnected == true ? 48 : 24)
-                .padding(.horizontal,15)
+                .frame(height:store.snapshot.externalConnected == true ? 36 : 16)
+                .padding(.horizontal,8)
             HStack(alignment:.top,spacing:0) {
                 metric(label:"整机耗电",icon:"laptopcomputer",power:store.snapshot.system,color:Palette.text,key:"system")
                 BatteryFlowArrow(active:!store.isStale && (store.snapshot.battery.value.map { $0 < -0.5 } ?? false),supplement:store.state == .supplement)
                     .frame(width:PowerFlowLayout.columnGap,height:PowerFlowLayout.iconHeight)
                 metric(label:store.state == .full ? "电池净功率" : store.snapshot.batteryLabel,icon:store.batterySymbol,power:store.snapshot.battery,color:store.state == .supplement ? Palette.warning : Palette.teal,key:"battery")
-            }.padding(.horizontal,15)
+            }.padding(.horizontal,8)
         }
     }
     private func reading(_ metric: PowerMetric,signed:Bool=false) -> String { store.isStale ? "—" : metric.formatted(signed:signed) }
@@ -251,19 +258,19 @@ struct PowerFlowView: View {
             VStack(spacing:4) {
                 Group {
                     if key == "battery" {
-                        BatteryStateIcon(symbol:icon,isFull:store.state == .full && !store.isStale,size:33)
+                        BatteryStateIcon(symbol:icon,isFull:store.state == .full && !store.isStale,size:27)
                     } else {
-                        Image(systemName:icon).font(.system(size:33,weight:.light))
+                        Image(systemName:icon).font(.system(size:27,weight:.light))
                     }
                 }.frame(height:PowerFlowLayout.iconHeight).foregroundStyle(key == "system" ? Palette.secondary : color)
                 Text(label).font(.system(size:12)).foregroundStyle(Palette.secondary)
                 let fullBattery = key == "battery" && store.state == .full && !store.isStale
-                value(power,fontSize:27,signed:key == "battery").foregroundStyle(fullBattery ? Palette.text : color)
+                value(power,fontSize:24,signed:key == "battery").foregroundStyle(fullBattery ? Palette.text : color)
                 if fullBattery {
                     Text(power.quality == .estimated ? "已充满 · 估算" : power.quality == .unavailable ? "已充满 · 未提供" : "已充满")
                         .font(.system(size:11)).foregroundStyle(Palette.secondary)
-                } else {
-                    Text(power.quality == .estimated ? "估算" : " ").font(.system(size:10)).foregroundStyle(Palette.secondary)
+                } else if power.quality == .estimated {
+                    Text("估算").font(.system(size:10)).foregroundStyle(Palette.secondary)
                 }
             }.frame(maxWidth:.infinity)
         }.buttonStyle(.plain).frame(maxWidth:.infinity).help("查看\(label)的来源和解释")
@@ -272,8 +279,8 @@ struct PowerFlowView: View {
 }
 
 private enum PowerFlowLayout {
-    static let columnGap: CGFloat = 60
-    static let iconHeight: CGFloat = 35
+    static let columnGap: CGFloat = 44
+    static let iconHeight: CGFloat = 29
 }
 
 struct FlowBranches: View {
@@ -286,18 +293,21 @@ struct FlowBranches: View {
             let columnWidth = (w - PowerFlowLayout.columnGap) / 2
             let left = columnWidth / 2
             let right = w - left
+            let middle = geo.size.height / 2
+            let bottom = geo.size.height - 6
+            let radius: CGFloat = 7
             if active {
                 Path { p in
-                    p.move(to:CGPoint(x:w/2,y:5)); p.addLine(to:CGPoint(x:w/2,y:14))
-                    p.addQuadCurve(to:CGPoint(x:w/2-10,y:24),control:CGPoint(x:w/2,y:24));p.addLine(to:CGPoint(x:left+10,y:24))
-                    p.addQuadCurve(to:CGPoint(x:left,y:34),control:CGPoint(x:left,y:24));p.addLine(to:CGPoint(x:left,y:39))
+                    p.move(to:CGPoint(x:w/2,y:3)); p.addLine(to:CGPoint(x:w/2,y:middle-radius))
+                    p.addQuadCurve(to:CGPoint(x:w/2-radius,y:middle),control:CGPoint(x:w/2,y:middle));p.addLine(to:CGPoint(x:left+radius,y:middle))
+                    p.addQuadCurve(to:CGPoint(x:left,y:middle+radius),control:CGPoint(x:left,y:middle));p.addLine(to:CGPoint(x:left,y:bottom))
                     if charging {
-                        p.move(to:CGPoint(x:w/2,y:14));p.addQuadCurve(to:CGPoint(x:w/2+10,y:24),control:CGPoint(x:w/2,y:24))
-                        p.addLine(to:CGPoint(x:right-10,y:24));p.addQuadCurve(to:CGPoint(x:right,y:34),control:CGPoint(x:right,y:24));p.addLine(to:CGPoint(x:right,y:39))
+                        p.move(to:CGPoint(x:w/2,y:middle-radius));p.addQuadCurve(to:CGPoint(x:w/2+radius,y:middle),control:CGPoint(x:w/2,y:middle))
+                        p.addLine(to:CGPoint(x:right-radius,y:middle));p.addQuadCurve(to:CGPoint(x:right,y:middle+radius),control:CGPoint(x:right,y:middle));p.addLine(to:CGPoint(x:right,y:bottom))
                     }
                 }.stroke(Palette.blue,style:StrokeStyle(lineWidth:1.5,lineCap:.round))
-                Image(systemName:"arrowtriangle.down.fill").font(.system(size:8)).foregroundStyle(Palette.blue).position(x:left,y:39)
-                if charging { Image(systemName:"arrowtriangle.down.fill").font(.system(size:8)).foregroundStyle(Palette.blue).position(x:right,y:39) }
+                Image(systemName:"arrowtriangle.down.fill").font(.system(size:8)).foregroundStyle(Palette.blue).position(x:left,y:bottom)
+                if charging { Image(systemName:"arrowtriangle.down.fill").font(.system(size:8)).foregroundStyle(Palette.blue).position(x:right,y:bottom) }
             }
         }.accessibilityHidden(true)
     }
@@ -378,6 +388,65 @@ struct BatteryProgressStyle: ProgressViewStyle {
 
 enum TrendKind: String, CaseIterable { case level = "电量", power = "功率" }
 
+struct TrendToolbar: View {
+    @Binding var kind: TrendKind
+    @Binding var minutes: Int
+    var expanded: Bool
+    var canExport: Bool
+    var onExport: () -> Void
+
+    private var intervalTitle: String {
+        switch minutes {
+        case 15: return "15 分钟"
+        case 60: return "1 小时"
+        default: return "24 小时"
+        }
+    }
+
+    var body: some View {
+        HStack(spacing:8) {
+            Menu("\(kind.rawValue)趋势") {
+                Picker("趋势指标",selection:$kind) {
+                    ForEach(TrendKind.allCases,id:\.self) { Text("\($0.rawValue)趋势").tag($0) }
+                }.pickerStyle(.inline)
+            }
+            .font(.system(size:expanded ? 15 : 13,weight:.semibold))
+                .modifier(TrendSelectorChrome())
+                .help("切换电量或功率趋势").accessibilityLabel("趋势指标").accessibilityValue(kind.rawValue)
+            Spacer(minLength:0)
+            Menu {
+                Picker("趋势时段",selection:$minutes) {
+                    Text("最近 15 分钟").tag(15)
+                    Text("最近 1 小时").tag(60)
+                    Text("最近 24 小时").tag(1440)
+                }.pickerStyle(.inline)
+            } label: {
+                Label(intervalTitle,systemImage:"clock")
+            }
+            .font(.system(size:expanded ? 14 : 12,weight:.medium))
+                .modifier(TrendSelectorChrome())
+                .help("选择趋势时段").accessibilityLabel("趋势时段").accessibilityValue("最近 \(intervalTitle)")
+            Button(action:onExport) {
+                Image(systemName:"square.and.arrow.up").font(.system(size:15)).frame(width:26,height:26).contentShape(Rectangle())
+            }.buttonStyle(.plain).foregroundStyle(Palette.secondary).disabled(!canExport)
+                .help("导出当前时段 CSV").accessibilityLabel("导出当前时段 CSV")
+        }
+    }
+}
+
+private struct TrendSelectorChrome: ViewModifier {
+    func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius:7)
+        content.menuStyle(.borderlessButton).menuIndicator(.visible)
+            .tint(Palette.secondary)
+            .fixedSize()
+            .padding(.horizontal,6)
+            .frame(height:28)
+            .background(Palette.secondarySurface,in:shape)
+            .overlay { shape.strokeBorder(Palette.line).allowsHitTesting(false) }
+    }
+}
+
 struct HistoryPanel: View {
     @ObservedObject var store: AppStore
     var expanded = false
@@ -391,20 +460,15 @@ struct HistoryPanel: View {
         self._kind = ViewState(initialValue:kind)
     }
     var body: some View {
-        VStack(alignment:.leading,spacing:17) {
-            HStack {
-                VStack(alignment:.leading,spacing:5) { Text(kind == .level ? "电量趋势" : "功率趋势").font(.system(size:19,weight:.semibold));Text("每一分钟，来自真实记录。").font(.system(size:11)).foregroundStyle(Palette.secondary) }
-                Spacer()
-                Button { store.export(minutes:minutes) } label: { Image(systemName:"square.and.arrow.up").font(.system(size:18)) }.buttonStyle(.plain).help("导出当前时段 CSV").accessibilityLabel("导出当前时段 CSV").disabled(points.isEmpty)
-            }.padding(.top,18)
-            Picker("趋势指标",selection:$kind) { ForEach(TrendKind.allCases,id:\.self) { Text($0.rawValue).tag($0) } }.pickerStyle(.segmented).labelsHidden()
-            Picker("趋势时段",selection:$minutes) { Text("15 分钟").tag(15);Text("1 小时").tag(60);Text("24 小时").tag(1440) }.pickerStyle(.segmented).labelsHidden()
+        VStack(alignment:.leading,spacing:expanded ? 17 : 12) {
+            TrendToolbar(kind:$kind,minutes:$minutes,expanded:expanded,canExport:!points.isEmpty) { store.export(minutes:minutes) }
+                .padding(.top,12).padding(.bottom,4)
             if kind == .level {
                 levelContent
             } else {
             HStack { Text("功率 / W");Spacer();Text("分钟均值") }.font(.system(size:10)).foregroundStyle(Palette.secondary)
-            PowerChart(points:points,minutes:minutes,series:series,endDate:store.chartTimestamp).equatable().frame(height:expanded ? 270 : 210)
-            HStack(spacing:15) {
+            PowerChart(points:points,minutes:minutes,series:series,endDate:store.chartTimestamp).equatable().frame(height:expanded ? 270 : 220)
+            HStack(spacing:expanded ? 15 : 10) {
                 ForEach(ChartSeries.allCases) { item in
                     Button {
                         if series.contains(item) { if series.count > 1 { series.remove(item) } } else { series.insert(item) }
@@ -432,10 +496,10 @@ struct HistoryPanel: View {
     private var points: [HistoryPoint] { store.selectedChartPoints(minutes:minutes) }
     private var levelContent: some View {
         let trend = store.selectedBatteryLevelTrend(minutes:minutes)
-        return VStack(alignment:.leading,spacing:17) {
+        return VStack(alignment:.leading,spacing:expanded ? 17 : 12) {
             HStack { Text("剩余电量 / %");Spacer();Text("每分钟末次读数") }.font(.system(size:10)).foregroundStyle(Palette.secondary)
             BatteryLevelChart(trend:trend,minutes:minutes,endDate:store.chartTimestamp,hasBattery:store.snapshot.hasBattery)
-                .equatable().frame(height:expanded ? 270 : 210)
+                .equatable().frame(height:expanded ? 270 : 220)
             Divider().overlay(Palette.line)
             HStack {
                 levelSummary("首条记录",value:trend.first.map { "\($0.percent)%" } ?? "—")
@@ -458,50 +522,81 @@ struct HistoryPanel: View {
         minutes == 1440 ? date.formatted(.dateTime.month(.twoDigits).day(.twoDigits).hour().minute()) : date.formatted(date:.omitted,time:.shortened)
     }
     private func levelSummary(_ title:String,value:String,unit:String = "") -> some View {
-        VStack(alignment:.leading,spacing:8) {
+        VStack(alignment:.leading,spacing:expanded ? 8 : 5) {
             Text(title).font(.system(size:11)).foregroundStyle(Palette.secondary)
             HStack(alignment:.firstTextBaseline,spacing:3) {
-                Text(value).font(.system(size:23,weight:.semibold)).monospacedDigit()
+                Text(value).font(.system(size:expanded ? 23 : 21,weight:.semibold)).monospacedDigit()
                 if !unit.isEmpty { Text(unit).font(.system(size:10)).foregroundStyle(Palette.secondary) }
             }
         }.accessibilityElement(children:.combine)
     }
     private var coverage: Int { min(100,Int(points.reduce(0){$0+$1.coveredSeconds}/Double(minutes*60)*100)) }
-    private func summary(_ title:String,value:String) -> some View { VStack(alignment:.leading,spacing:8) { Text(title).font(.system(size:11)).foregroundStyle(Palette.secondary);Text(value).font(.system(size:23,weight:.semibold)).monospacedDigit() } }
+    private func summary(_ title:String,value:String) -> some View { VStack(alignment:.leading,spacing:expanded ? 8 : 5) { Text(title).font(.system(size:11)).foregroundStyle(Palette.secondary);Text(value).font(.system(size:expanded ? 23 : 21,weight:.semibold)).monospacedDigit() } }
 }
 
 struct HealthPanel: View {
     @ObservedObject var store: AppStore
     var body: some View {
         VStack(alignment:.leading,spacing:0) {
-            HStack { Text("电池健康").font(.system(size:19,weight:.semibold));Spacer();Image(systemName:"heart").font(.system(size:24)).foregroundStyle(Palette.teal) }.padding(.top,20)
-            Text("关注长期状态，安心使用。").font(.system(size:11)).foregroundStyle(Palette.secondary).padding(.top,7)
-            VStack(spacing:11) {
-                Text(store.health?.conditionLabel ?? "正在读取").font(.system(size:11)).foregroundStyle(Palette.teal).padding(.horizontal,10).padding(.vertical,5).background(Palette.teal.opacity(0.1),in:Capsule())
-                HStack(alignment:.firstTextBaseline,spacing:2) { Text(store.health?.maximumCapacity.map(String.init) ?? "—").font(.system(size:61,weight:.semibold));Text("%").font(.system(size:26)) }.monospacedDigit()
-                Text("最大容量 · 系统报告").font(.system(size:12)).foregroundStyle(Palette.secondary)
-                Button("这与剩余电量有什么区别？") { store.showMetric?("health") }.buttonStyle(.plain).foregroundStyle(Palette.blue).font(.system(size:11))
-            }.frame(maxWidth:.infinity).padding(.vertical,27)
-            row("循环次数",value:(store.health?.cycleCount ?? store.snapshot.cycleCount).map{"\($0) 次"} ?? "未提供")
-            row("电池温度",value:"未提供")
-            row("满充容量",value:"未验证")
-            row("设计容量",value:"未验证")
-            Divider().overlay(Palette.line)
-            Text("容量变化").font(.system(size:13,weight:.medium)).padding(.top,19)
-            if store.healthHistory.count < 2 {
-                VStack(spacing:8) { Image(systemName:"chart.xyaxis.line").font(.system(size:25));Text("从今天开始，了解电池的变化。").font(.system(size:12));Text("积累至少两天记录后可查看趋势。").font(.system(size:10)) }.foregroundStyle(Palette.secondary).frame(maxWidth:.infinity).padding(.vertical,25)
+            HStack { Text("电池健康").font(.system(size:17,weight:.semibold));Spacer();Image(systemName:"heart").font(.system(size:20)).foregroundStyle(healthColor) }.padding(.top,12)
+            if let report = store.health, report.hasData {
+                VStack(spacing:7) {
+                    if report.condition != nil {
+                        Text(report.conditionLabel).font(.system(size:11,weight:.medium)).foregroundStyle(healthColor)
+                            .padding(.horizontal,10).padding(.vertical,5).background(healthColor.opacity(0.1),in:Capsule())
+                    }
+                    if let capacity = report.maximumCapacity {
+                        HStack(alignment:.firstTextBaseline,spacing:2) {
+                            Text("\(capacity)").font(.system(size:46,weight:.semibold))
+                            Text("%").font(.system(size:20))
+                        }.monospacedDigit()
+                        Text("最大容量 · 系统报告").font(.system(size:12)).foregroundStyle(Palette.secondary)
+                        Button("了解最大容量") { store.showMetric?("health") }.buttonStyle(.plain).foregroundStyle(Palette.blue).font(.system(size:11))
+                    } else {
+                        Text("系统未提供最大容量").font(.system(size:12)).foregroundStyle(Palette.secondary)
+                    }
+                }.frame(maxWidth:.infinity).padding(.vertical,20)
+                if let cycles = report.cycleCount {
+                    row("循环次数",value:"\(cycles) 次")
+                    Text("按累计使用电量计算，并非插电次数。").font(.system(size:10)).foregroundStyle(Palette.secondary).padding(.bottom,12)
+                }
+                Divider().overlay(Palette.line)
+                Text("容量变化").font(.system(size:13,weight:.medium)).padding(.top,12)
+                if store.healthHistory.count < 2 {
+                    Label("积累至少两天记录后显示趋势",systemImage:"chart.xyaxis.line")
+                        .font(.system(size:11)).foregroundStyle(Palette.secondary).frame(maxWidth:.infinity,alignment:.leading).padding(.vertical,20)
+                } else {
+                    Chart(store.healthHistory,id:\.date) { item in
+                        if let value = item.maximumCapacity {
+                            LineMark(x:.value("日期",item.date),y:.value("最大容量 %",value),series:.value("来源",item.source)).foregroundStyle(Palette.teal)
+                            PointMark(x:.value("日期",item.date),y:.value("最大容量 %",value)).foregroundStyle(Palette.teal)
+                        }
+                    }.chartYScale(domain:0...100).frame(height:100).padding(.vertical,12)
+                }
+                Text("\(report.source) · \(report.date.formatted(date:.abbreviated,time:.shortened))")
+                    .font(.system(size:10)).foregroundStyle(Palette.secondary).padding(.bottom,12)
             } else {
-                Chart(store.healthHistory,id:\.date) { item in
-                    if let value = item.maximumCapacity { LineMark(x:.value("日期",item.date),y:.value("最大容量 %",value),series:.value("来源",item.source)).foregroundStyle(Palette.teal);PointMark(x:.value("日期",item.date),y:.value("最大容量 %",value)).foregroundStyle(Palette.teal) }
-                }.chartYScale(domain:0...100).frame(height:130).padding(.vertical,18)
+                VStack(spacing:10) {
+                    Image(systemName:"heart.text.square").font(.system(size:32,weight:.light))
+                    Text("暂无电池健康数据").font(.system(size:14,weight:.semibold)).foregroundStyle(Palette.text)
+                    Text("macOS 暂未提供健康报告。\n可重新读取，或在系统电池设置中查看。")
+                        .font(.system(size:11)).multilineTextAlignment(.center).lineSpacing(4)
+                }.foregroundStyle(Palette.secondary).frame(maxWidth:.infinity).padding(.vertical,40)
             }
-            Text("循环次数按累计使用电量计算，并非插电次数。").font(.system(size:10)).foregroundStyle(Palette.secondary)
-            if let date = store.health?.date { Text("健康报告更新于 \(date.formatted(date:.abbreviated,time:.shortened))").font(.system(size:10)).foregroundStyle(Palette.secondary).padding(.top,9) }
-            if let error = store.healthMessage { Text(error).font(.system(size:11)).foregroundStyle(Palette.warning).padding(.top,9) }
-            HStack { Button("重新读取健康报告") { store.refreshHealth() };Spacer();Button("系统电池设置") { NSWorkspace.shared.open(URL(string:"x-apple.systempreferences:com.apple.preference.battery")!) } }.buttonStyle(.plain).foregroundStyle(Palette.blue).font(.system(size:11)).padding(.vertical,20)
+            if let error = store.healthMessage { Text(error).font(.system(size:11)).foregroundStyle(Palette.warning).padding(.bottom,12) }
+            Divider().overlay(Palette.line)
+            HStack {
+                Button { store.refreshHealth() } label: { Label("重新读取",systemImage:"arrow.clockwise").frame(minHeight:28) }
+                Spacer()
+                Button("系统电池设置") { NSWorkspace.shared.open(URL(string:"x-apple.systempreferences:com.apple.preference.battery")!) }.frame(minHeight:28)
+            }.buttonStyle(.plain).foregroundStyle(Palette.blue).font(.system(size:11)).padding(.top,8)
         }
     }
-    private func row(_ title:String,value:String) -> some View { VStack(spacing:0) { Divider().overlay(Palette.line);HStack { Text(title).foregroundStyle(Palette.secondary);Spacer();Text(value).monospacedDigit() }.font(.system(size:12)).padding(.vertical,13) } }
+    private var healthColor: Color {
+        guard let report = store.health, report.hasData else { return Palette.secondary }
+        return report.conditionLabel == "建议维修" ? Palette.warning : report.conditionLabel == "正常" ? Palette.teal : Palette.secondary
+    }
+    private func row(_ title:String,value:String) -> some View { VStack(spacing:0) { Divider().overlay(Palette.line);HStack { Text(title).foregroundStyle(Palette.secondary);Spacer();Text(value).monospacedDigit() }.font(.system(size:12)).padding(.vertical,8) } }
 }
 
 struct MetricDetail: View {

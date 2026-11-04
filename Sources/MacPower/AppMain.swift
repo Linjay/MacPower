@@ -20,7 +20,6 @@ import PowerCore
     private var settingsWindow: NSWindow?
     private var historyWindow: NSWindow?
     private var detailWindow: NSWindow?
-    private var overviewWindow: NSWindow?
     private var appearanceObserver: NSKeyValueObservation?
     private var updateTimer: Timer?
     private var lastIcon: StatusIconKey?
@@ -63,10 +62,9 @@ import PowerCore
         }
         popover.behavior = .transient; popover.animates = !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         popover.delegate = self
-        popover.contentSize = NSSize(width:416,height:780)
+        popover.contentSize = PowerPanelLayout.size
         store.onUpdate = { [weak self] in self?.updateAppearance(); self?.updateStatus() }
         store.showSettings = { [weak self] in self?.openSettings() }
-        store.showOverview = { [weak self] in self?.openOverview() }
         store.showHistory = { [weak self] minutes, series, kind in self?.openHistory(minutes:minutes,series:series,kind:kind) }
         store.showMetric = { [weak self] key in self?.openMetric(key) }
         store.quit = { NSApp.terminate(nil) }
@@ -80,18 +78,12 @@ import PowerCore
             Task { @MainActor in self?.store.updater.checkIfDue() }
         }
         updateTimer?.tolerance = 300
-        // Opening the app gives an immediately discoverable panel; closing it leaves only the status item.
-        DispatchQueue.main.asyncAfter(deadline:.now()+0.3) { [weak self] in
-            guard let self,
-                  ![self.settingsWindow,self.historyWindow,self.detailWindow,self.overviewWindow].compactMap({$0}).contains(where:{$0.isVisible}) else { return }
-            self.showPopover()
-        }
+        // Launch quietly in the menu bar; the user opens the panel from the status item.
     }
     func applicationWillTerminate(_ notification: Notification) { updateTimer?.invalidate(); store.updater.cancel(); store.stop() }
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        // Finder's Open operation offers a stable window even when menu extras are hidden or crowded.
-        openOverview()
-        return true
+        // Reopening the app must not create a second dashboard or reveal auxiliary windows.
+        return false
     }
     private func updateAppearance() {
         let appearance: NSAppearance?
@@ -103,7 +95,7 @@ import PowerCore
         // A manual app appearance does not change the system menu bar or its mode colors.
         if NSApp.appearance?.name != appearance?.name { NSApp.appearance = appearance }
         if popover.appearance?.name != appearance?.name { popover.appearance = appearance }
-        for window in [settingsWindow,historyWindow,detailWindow,overviewWindow].compactMap({$0}) {
+        for window in [settingsWindow,historyWindow,detailWindow].compactMap({$0}) {
             if window.appearance?.name != appearance?.name { window.appearance = appearance }
         }
     }
@@ -139,7 +131,6 @@ import PowerCore
         if NSApp.currentEvent?.type == .rightMouseUp {
             let menu = NSMenu()
             menu.addItem(withTitle:"打开 MacPower",action:#selector(showPopoverAction),keyEquivalent:"").target = self
-            menu.addItem(withTitle:"在窗口中打开",action:#selector(overviewAction),keyEquivalent:"").target = self
             menu.addItem(withTitle:"设置…",action:#selector(settingsAction),keyEquivalent:",").target = self
             let updateTitle: String
             if store.updater.installationState.isBusy { updateTitle = "正在更新…" }
@@ -160,7 +151,6 @@ import PowerCore
         if case .available = store.updater.state { return }
         store.updater.check()
     }
-    @objc private func overviewAction() { openOverview() }
     @objc private func quitAction() { NSApp.terminate(nil) }
     private func showPopover() {
         guard !popover.isShown, let button = statusItem.button else { return }
@@ -172,7 +162,7 @@ import PowerCore
         }
         NSApp.activate(ignoringOtherApps:true)
         let available = (button.window?.screen ?? NSScreen.main)?.visibleFrame.height ?? 900
-        popover.contentSize = NSSize(width:416,height:min(780,max(500,available-50)))
+        popover.contentSize = NSSize(width:PowerPanelLayout.size.width,height:min(PowerPanelLayout.size.height,max(1,available-50)))
         popover.show(relativeTo:button.bounds,of:button,preferredEdge:.minY)
         popover.contentViewController?.view.window?.makeKey()
         updateSamplingVisibility()
@@ -198,13 +188,6 @@ import PowerCore
         if settingsWindow == nil { settingsWindow = makeWindow(title:"MacPower 设置",size:NSSize(width:690,height:570),root:SettingsPanel(store:store)) }
         activate(settingsWindow!)
     }
-    private func openOverview() {
-        popover.performClose(nil)
-        if overviewWindow == nil {
-            overviewWindow = makeWindow(title:"MacPower 电源概览",size:NSSize(width:416,height:780),root:PowerPanel(store:store))
-        }
-        activate(overviewWindow!)
-    }
     private func openHistory(minutes: Int, series: Set<ChartSeries>, kind: TrendKind) {
         popover.performClose(nil)
         historyWindow?.close()
@@ -229,7 +212,6 @@ import PowerCore
             if self.settingsWindow === closing { self.settingsWindow = nil }
             if self.historyWindow === closing { self.historyWindow = nil }
             if self.detailWindow === closing { self.detailWindow = nil }
-            if self.overviewWindow === closing { self.overviewWindow = nil }
             closing.contentViewController = nil
             self.updateSamplingVisibility()
         }
@@ -240,7 +222,7 @@ import PowerCore
     private func updateSamplingVisibility() {
         // Settings contain no live power readings. Hidden and minimized windows must not
         // promote background polling to one second or refresh their cached trend data.
-        store.setVisible(popover.isShown || [historyWindow,detailWindow,overviewWindow].compactMap({$0}).contains(where:{
+        store.setVisible(popover.isShown || [historyWindow,detailWindow].compactMap({$0}).contains(where:{
             $0.isVisible && !$0.isMiniaturized && $0.occlusionState.contains(.visible)
         }))
     }

@@ -49,12 +49,27 @@ public enum PowerParser {
     public static func health(from data: Data, at date: Date = Date()) throws -> HealthReport {
         let root = try JSONSerialization.jsonObject(with: data) as? [String: Any]
         let items = root?["SPPowerDataType"] as? [[String: Any]] ?? []
-        let health = items.compactMap { $0["sppower_battery_health_info"] as? [String: Any] }.first ?? [:]
-        let text = health["sppower_battery_health_maximum_capacity"] as? String
-        let capacity = text.flatMap { Int($0.replacingOccurrences(of: "%", with: "").trimmingCharacters(in: .whitespaces)) }
+        let health = healthInfo(in:items) ?? [:]
+        let rawCapacity = health["sppower_battery_health_maximum_capacity"]
+        let capacity: Int?
+        if let text = rawCapacity as? String {
+            capacity = Int(text.replacingOccurrences(of:"%",with:"").trimmingCharacters(in:.whitespacesAndNewlines))
+        } else if let value = number(rawCapacity,range:0...100), value.rounded() == value {
+            capacity = Int(value)
+        } else { capacity = nil }
+        let condition = (health["sppower_battery_health"] as? String)?.trimmingCharacters(in:.whitespacesAndNewlines)
         return HealthReport(date: date, maximumCapacity: capacity.flatMap { (0...100).contains($0) ? $0 : nil },
-            condition: health["sppower_battery_health"] as? String,
+            condition: condition?.isEmpty == false ? condition : nil,
             cycleCount: number(health["sppower_battery_cycle_count"], range: 0...100_000).map(Int.init))
+    }
+
+    private static func healthInfo(in items: [[String:Any]],depth: Int = 0) -> [String:Any]? {
+        guard depth < 8 else { return nil }
+        for item in items {
+            if let info = item["sppower_battery_health_info"] as? [String:Any], !info.isEmpty { return info }
+            if let children = item["_items"] as? [[String:Any]], let info = healthInfo(in:children,depth:depth+1) { return info }
+        }
+        return nil
     }
 
     private static func metric(_ raw: Any?, key: String, date: Date, signed: Bool) -> PowerMetric {

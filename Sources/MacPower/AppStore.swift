@@ -33,7 +33,6 @@ import UpdateCore
     @Published var loginEnabled = SMAppService.mainApp.status == .enabled
     var onUpdate: (() -> Void)?
     var showSettings: (() -> Void)?
-    var showOverview: (() -> Void)?
     var showHistory: ((Int, Set<ChartSeries>, TrendKind) -> Void)?
     var showMetric: ((String) -> Void)?
     var quit: (() -> Void)?
